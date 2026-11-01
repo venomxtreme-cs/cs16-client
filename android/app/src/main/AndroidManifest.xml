@@ -131,6 +131,7 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:preferMinimalPostProcessing="true"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
             android:windowSoftInputMode="adjustPan">
             <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
