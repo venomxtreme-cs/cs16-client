@@ -98,6 +98,21 @@ public class XashActivity extends SDLActivity {
 		}
 	}
 
+	// build 116 (user: "back returns to main launcher, not pause - fix it"):
+	// Android back = PAUSE the game (the GoldSource ESC/menu key), never
+	// leave this activity. SDLActivity's default onBackPressed() finishes
+	// the activity, which runs onDestroy -> System.exit(0) - the whole
+	// app died on every back press (that was the "it returns me to the
+	// launcher" from build 115; 114's fix could not work against it).
+	// Inject ESC down+up straight into SDL's native key path: the engine
+	// sees keydest=game -> ESC -> mainui pauses/opens. Exiting the game is
+	// done from the in-game menu (quit), same as on PC.
+	@Override
+	public void onBackPressed() {
+		onNativeKeyDown(android.view.KeyEvent.KEYCODE_ESCAPE);
+		onNativeKeyUp(android.view.KeyEvent.KEYCODE_ESCAPE);
+	}
+
 	// JNI reads a snapshot; all View access stays on Android's UI thread.
 	private float[] getWindowInsets() {
 		return mWindowInsets;

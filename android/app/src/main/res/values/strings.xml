@@ -21,6 +21,14 @@
     <string name="menu_settings_header">SETTINGS</string>
     <string name="section_status">STATUS</string>
     <string name="section_game">GAME</string>
+    <string name="section_choose_game">CHOOSE GAME</string>
+    <string name="section_tools">TOOLS</string>
+    <string name="game_pick_cs">COUNTER\nSTRIKE 1.6</string>
+    <string name="game_pick_hl">HALF\nLIFE</string>
+    <string name="game_pick_cz">CONDITION\nZERO</string>
+    <string name="game_desc_cs">Classic CS 1.6 - AMXX, YaPB and eBot switches below</string>
+    <string name="game_desc_hl">Valve\'s Half-Life campaign - uses the separate HL add-on bundle</string>
+    <string name="game_desc_cz">Condition Zero plays like Counter-Strike 1.6 - same switches as CS</string>
     <string name="status_engine">Engine</string>
     <string name="status_addons">Addons bundle</string>
     <string name="status_installed">Installed</string>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- build 116 chooser: selected game tile - coral accent to match btn_gold -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <corners android:radius="14dp" />
+            <solid android:color="#3A2A2A" />
+            <stroke
+                android:width="2dp"
+                android:color="#D55E55" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="14dp" />
+            <solid android:color="#2E2326" />
+            <stroke
+                android:width="2dp"
+                android:color="#EA6C63" />
+        </shape>
+    </item>
+</selector>

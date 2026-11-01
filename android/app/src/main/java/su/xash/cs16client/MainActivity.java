@@ -743,8 +743,8 @@ public class MainActivity extends Activity {
         // auto-creates valve/addons on every launch, so a valve folder that
         // only holds the addon tree used to be reported as a missing game
         // (the real symptom: "valve folder already in xash folder" but no find)
-        private boolean hasGamePaks( String gamedir ) {
-                File[] files = new File( getXashDir(), gamedir ).listFiles();
+        private boolean dirHasPaks( File dir ) {
+                File[] files = dir.listFiles();
                 if( files == null ) return false;
 
                 for( File f : files ) {
@@ -753,6 +753,59 @@ public class MainActivity extends Activity {
                                 return true;
                 }
                 return false;
+        }
+
+        // build 116: the folder NAME itself may differ in case from what we
+        // ask for (some file managers write "Valve" or "HALFLIFE") - resolve
+        // the real entry from the parent listing before giving up on it.
+        private File resolveGameDir( String gamedir ) {
+                File direct = new File( getXashDir(), gamedir );
+                if( direct.isDirectory() )
+                        return direct;
+
+                File[] children = getXashDir().listFiles();
+                if( children != null )
+                        for( File c : children )
+                                if( c.isDirectory() && c.getName().equalsIgnoreCase( gamedir ))
+                                        return c;
+                return null;
+        }
+
+        // build 116 (device report: "pak didn't found although the files are
+        // there"): send the engine WHERE THE PAKS ARE, not where we assume
+        // they live - people often extract a zipped half-life so the real
+        // files end up nested (xash/valve/valve/pak0.pak). Breadth-first,
+        // depth <= 5, shallowest pak directory wins, path returned RELATIVE
+        // to the xash root for the engine (e.g. "valve" or "valve/valve").
+        // Returns null when no pak file exists anywhere below the gamedir.
+        private String findGamePakDir( String gamedir ) {
+                File root = resolveGameDir( gamedir );
+                if( root == null )
+                        return null;
+
+                String rootPath = getXashDir().getAbsolutePath();
+                if( dirHasPaks( root ))
+                        return root.getAbsolutePath().substring( rootPath.length() + 1 );
+
+                java.util.ArrayDeque<File> queue = new java.util.ArrayDeque<>();
+                java.util.HashSet<String> seen = new java.util.HashSet<>();
+                queue.add( root );
+                seen.add( root.getAbsolutePath() );
+
+                while( !queue.isEmpty() ) {
+                        File dir = queue.poll();
+                        File[] children = dir.listFiles();
+                        if( children == null ) continue;
+
+                        for( File c : children ) {
+                                if( !c.isDirectory() || !seen.add( c.getAbsolutePath()))
+                                        continue;
+                                if( dirHasPaks( c ))
+                                        return c.getAbsolutePath().substring( rootPath.length() + 1 );
+                                queue.add( c );
+                        }
+                }
+                return null;
         }
 
         // build 114: Half-Life choice. The HL CLIENT dll ships in this APK
@@ -766,15 +819,25 @@ public class MainActivity extends Activity {
                         return;
                 }
 
-                if( !new File( getXashDir(), "valve" ).isDirectory()) {
-                        Toast.makeText( this, R.string.menu_hl_missing,
-                                Toast.LENGTH_LONG ).show();
-                        return;
-                }
-                if( !hasGamePaks( "valve" )) {
+                // build 116: only a MISSING valve folder blocks the start now. The paks
+        // are searched anywhere below it (nested folders, wrong-case folder
+        // name) and the engine gets the gamedir where they actually are -
+        // the old top-level-only check refused to start even when the data
+        // sat right there (device report: "pak didn't found ... folder
+        // already in xash").
+                String pakDir = findGamePakDir( "valve" );
+                if( pakDir == null ) {
+                        if( resolveGameDir( "valve" ) == null ) {
+                                Toast.makeText( this, R.string.menu_hl_missing,
+                                        Toast.LENGTH_LONG ).show();
+                                return;
+                        }
+                        // folder exists but no pak anywhere: still start the
+                        // engine (its own log/console explains what's empty)
+                        // instead of hard-blocking the launch
                         Toast.makeText( this, R.string.menu_hl_no_paks,
                                 Toast.LENGTH_LONG ).show();
-                        return;
+                        pakDir = "valve";
                 }
 
                 String arch = "arm64";
@@ -791,7 +854,7 @@ public class MainActivity extends Activity {
                 android.content.SharedPreferences sp = getPreferences( MODE_PRIVATE );
                 boolean hlAmxx = sp.getBoolean( "enable_hl_amxx", true );
 
-                launchEngine( "valve", "-clientlib " + clientLib, !hlAmxx );
+                launchEngine( pakDir, "-clientlib " + clientLib, !hlAmxx );
         }
 
         // build 115: Condition Zero joins the chooser inside the same app -
@@ -799,21 +862,28 @@ public class MainActivity extends Activity {
         // through launchEngine() (NOT the old CZeroActivity trampoline, which
         // still carried FLAG_ACTIVITY_CLEAR_TASK and would recreate the
         // build-114 back-button bug by wiping this launcher off the stack).
-        // CZ plays plain: disableAmxx=true - no CS metamod/amxx/bot addons
+        // build 116: user says czero "is same like cs1.6" - so it now uses
+        // THE SAME addon switches and gate as Counter-Strike (nested pak
+        // discovery + start-anyway rule like Half-Life).
         private void onCZeroPressed() {
                 if( !hasStorageAccess() ) {
                         requestStorageAccess();
                         return;
                 }
 
-                if( !new File( getXashDir(), "czero" ).isDirectory()
-                                || !hasGamePaks( "czero" )) {
+                String pakDir = findGamePakDir( "czero" );
+                if( pakDir == null ) {
+                        if( resolveGameDir( "czero" ) == null ) {
+                                Toast.makeText( this, R.string.menu_cz_missing,
+                                        Toast.LENGTH_LONG ).show();
+                                return;
+                        }
                         Toast.makeText( this, R.string.menu_cz_missing,
                                 Toast.LENGTH_LONG ).show();
-                        return;
+                        pakDir = "czero";
                 }
 
-                launchEngine( "czero", null, true );
+                launchEngine( pakDir, null, !isAmxxOn() && !isYapbOn() && !isEbotOn() );
         }
 
         // ------------------------------------------------------------------
@@ -886,39 +956,98 @@ public class MainActivity extends Activity {
                         }
                 });
 
-                ((Button) findViewById( R.id.menu_launch )).setOnClickListener(
+                // build 116 launcher rework: ONE play button driven by the CHOOSE GAME
+                // tiles at the top. The pick (persisted under selected_game)
+                // decides the visible options block, the button label and the
+                // launch target. CS and CZ share the CS switches (user:
+                // "czero is same like cs1.6"); HL keeps its own bundle row.
+                final Button playButton = (Button) findViewById( R.id.menu_launch );
+                final TextView detailTitle = (TextView) findViewById( R.id.game_detail_title );
+                final TextView detailDesc = (TextView) findViewById( R.id.game_detail_desc );
+                final TextView detailPath = (TextView) findViewById( R.id.game_detail_path );
+                final android.view.View optionsCs = findViewById( R.id.options_cs );
+                final android.view.View optionsHl = findViewById( R.id.options_hl );
+                final android.view.View pickCs = findViewById( R.id.game_pick_cs );
+                final android.view.View pickHl = findViewById( R.id.game_pick_hl );
+                final android.view.View pickCz = findViewById( R.id.game_pick_cz );
+
+                final int[] selectedGame = { getPreferences( MODE_PRIVATE )
+                        .getInt( "selected_game", 0 ) };
+                if( selectedGame[0] < 0 || selectedGame[0] > 2 )
+                        selectedGame[0] = 0;
+
+                final Runnable applySelection = new Runnable() {
+                        @Override
+                        public void run() {
+                                int g = selectedGame[0];
+
+                                pickCs.setBackgroundResource(
+                                        g == 0 ? R.drawable.tile_selected : R.drawable.tile_idle );
+                                ((Button) pickCs).setTextColor(
+                                        g == 0 ? 0xFFFFFFFF : 0xFFAEB7C6 );
+                                pickHl.setBackgroundResource(
+                                        g == 1 ? R.drawable.tile_selected : R.drawable.tile_idle );
+                                ((Button) pickHl).setTextColor(
+                                        g == 1 ? 0xFFFFFFFF : 0xFFAEB7C6 );
+                                pickCz.setBackgroundResource(
+                                        g == 2 ? R.drawable.tile_selected : R.drawable.tile_idle );
+                                ((Button) pickCz).setTextColor(
+                                        g == 2 ? 0xFFFFFFFF : 0xFFAEB7C6 );
+
+                                detailTitle.setText( new int[] {
+                                        R.string.game_card_cs, R.string.game_card_hl,
+                                        R.string.game_card_cz }[g] );
+                                detailDesc.setText( new int[] {
+                                        R.string.game_desc_cs, R.string.game_desc_hl,
+                                        R.string.game_desc_cz }[g] );
+                                detailPath.setText( "/sdcard/xash/" + new String[] {
+                                        "cstrike", "valve", "czero" }[g] );
+
+                                optionsCs.setVisibility( g == 1 ?
+                                        android.view.View.GONE : android.view.View.VISIBLE );
+                                optionsHl.setVisibility( g == 1 ?
+                                        android.view.View.VISIBLE : android.view.View.GONE );
+
+                                playButton.setText( new int[] {
+                                        R.string.menu_launch, R.string.menu_launch_hl,
+                                        R.string.menu_launch_cz }[g] );
+                        }
+                };
+
+                final android.content.SharedPreferences gamePrefs =
+                        getPreferences( MODE_PRIVATE );
+                final int[] clickers = { R.id.game_pick_cs, R.id.game_pick_hl,
+                                         R.id.game_pick_cz };
+                for( int gi = 0; gi < clickers.length; gi++ ) {
+                        final int idx = gi;
+                        findViewById( clickers[gi] ).setOnClickListener(
+                                        new android.view.View.OnClickListener() {
+                                @Override
+                                public void onClick( android.view.View v ) {
+                                        selectedGame[0] = idx;
+                                        gamePrefs.edit()
+                                                .putInt( "selected_game", idx ).apply();
+                                        applySelection.run();
+                                }
+                        });
+                }
+                applySelection.run();
+
+                playButton.setOnClickListener(
                                 new android.view.View.OnClickListener() {
                         @Override
                         public void onClick( android.view.View v ) {
-                                onLaunchPressed();
+                                switch( selectedGame[0] ) {
+                                case 1:  onHalfLifePressed();  break;
+                                case 2:  onCZeroPressed();     break;
+                                default: onLaunchPressed();
+                                }
                         }
                 });
 
-                // build 114 merge: the second game choice - same in-app
-                // engine, gamedir=valve
-                android.view.View hlBtn = findViewById( R.id.menu_launch_hl );
-                if( hlBtn != null )
-                        hlBtn.setOnClickListener(
-                                        new android.view.View.OnClickListener() {
-                                @Override
-                                public void onClick( android.view.View v ) {
-                                        onHalfLifePressed();
-                                }
-                        });
-
-                // build 115: Condition Zero card + the Half-Life addon switch
-                // (persisted as enable_hl_amxx, read in onHalfLifePressed -
-                // it never touches the CS amxx/yapb/ebot switches)
-                android.view.View czBtn = findViewById( R.id.menu_launch_cz );
-                if( czBtn != null )
-                        czBtn.setOnClickListener(
-                                        new android.view.View.OnClickListener() {
-                                @Override
-                                public void onClick( android.view.View v ) {
-                                        onCZeroPressed();
-                                }
-                        });
-
+                // build 115: the Half-Life addon switch (persisted as
+                // enable_hl_amxx, read in onHalfLifePressed - it never
+                // touches the CS amxx/yapb/ebot switches)
                 final PillSwitch hlAmxxSwitch = (PillSwitch)
                         findViewById( R.id.menu_enable_hl_amxx );
                 if( hlAmxxSwitch != null ) {

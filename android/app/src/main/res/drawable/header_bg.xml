@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- build 116 style pass: soft top-down gradient behind the top bar -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:startColor="#1A1E27"
+        android:endColor="#14171E" />
+    <solid android:color="#14171E" />
+</shape>

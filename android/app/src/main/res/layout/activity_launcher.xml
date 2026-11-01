@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- build 116 launcher rework (user: "choose game first, plus reinstall
+     addons; make it much better with a very good style"):
+     CHOOSE GAME (3 tiles) -> selected game's options + big PLAY ->
+     TOOLS (reinstall addons) -> STATUS -> footer -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -6,11 +10,11 @@
     android:fitsSystemWindows="true"
     android:orientation="vertical">
 
-    <!-- top bar -->
+    <!-- top bar: soft gradient, game icon, build chip -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#14171E"
+        android:background="@drawable/header_bg"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingLeft="14dp"
@@ -47,6 +51,11 @@
             android:text="AMXX"
             android:textColor="#AEB7C6"
             android:textSize="11sp" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
 
     </LinearLayout>
 
@@ -105,10 +114,415 @@
 
             </LinearLayout>
 
-            <!-- STATUS -->
+            <!-- CHOOSE GAME first: three tiles, the pick drives everything -->
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:letterSpacing="0.14"
+                android:text="@string/section_choose_game"
+                android:textColor="#7E8CA0"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/card_dark"
+                android:orientation="vertical"
+                android:padding="13dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/game_pick_cs"
+                        android:layout_width="0dp"
+                        android:layout_height="74dp"
+                        android:layout_marginRight="7dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/tile_selected"
+                        android:gravity="center"
+                        android:padding="4dp"
+                        android:text="@string/game_pick_cs"
+                        android:textColor="#FFFFFF"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <Button
+                        android:id="@+id/game_pick_hl"
+                        android:layout_width="0dp"
+                        android:layout_height="74dp"
+                        android:layout_marginLeft="4dp"
+                        android:layout_marginRight="4dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/tile_idle"
+                        android:gravity="center"
+                        android:padding="4dp"
+                        android:text="@string/game_pick_hl"
+                        android:textColor="#AEB7C6"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <Button
+                        android:id="@+id/game_pick_cz"
+                        android:layout_width="0dp"
+                        android:layout_height="74dp"
+                        android:layout_marginLeft="7dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/tile_idle"
+                        android:gravity="center"
+                        android:padding="4dp"
+                        android:text="@string/game_pick_cz"
+                        android:textColor="#AEB7C6"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                </LinearLayout>
+
+                <View
+                    android:id="@+id/game_divider_top"
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="13dp"
+                    android:layout_marginBottom="11dp"
+                    android:background="#2A303B" />
+
+                <TextView
+                    android:id="@+id/game_detail_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="@string/game_card_cs"
+                    android:textColor="#E8ECF4"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/game_detail_desc"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:text="@string/game_desc_cs"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/game_detail_path"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:fontFamily="monospace"
+                    android:text="/sdcard/xash/cstrike"
+                    android:textColor="#5E6878"
+                    android:textSize="11sp" />
+
+                <!-- options block: CS/CZ share the CS switches, HL its own -->
+                <LinearLayout
+                    android:id="@+id/options_cs"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:id="@+id/row_amxx"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/row_pressed"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:src="@drawable/ic_chip" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginLeft="11dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:fontFamily="sans-serif-medium"
+                                android:text="@string/menu_enable_amxx"
+                                android:textColor="#E8ECF4"
+                                android:textSize="15sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/menu_enable_amxx_sum"
+                                android:textColor="#7E8CA0"
+                                android:textSize="12sp" />
+
+                        </LinearLayout>
+
+                        <su.xash.cs16client.PillSwitch
+                            android:id="@+id/menu_enable_amxx"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginLeft="8dp" />
+
+                    </LinearLayout>
+
+                    <View
+                        android:id="@+id/divider_a"
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginTop="11dp"
+                        android:layout_marginBottom="11dp"
+                        android:background="#2A303B" />
+
+                    <LinearLayout
+                        android:id="@+id/row_yapb"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/row_pressed"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:src="@drawable/ic_bot" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginLeft="11dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:fontFamily="sans-serif-medium"
+                                android:text="@string/menu_enable_yapb"
+                                android:textColor="#E8ECF4"
+                                android:textSize="15sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/menu_enable_yapb_sum"
+                                android:textColor="#7E8CA0"
+                                android:textSize="12sp" />
+
+                        </LinearLayout>
+
+                        <su.xash.cs16client.PillSwitch
+                            android:id="@+id/menu_enable_yapb"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginLeft="8dp" />
+
+                    </LinearLayout>
+
+                    <View
+                        android:id="@+id/divider_b"
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginTop="11dp"
+                        android:layout_marginBottom="11dp"
+                        android:background="#2A303B" />
+
+                    <LinearLayout
+                        android:id="@+id/row_ebot"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/row_pressed"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:src="@drawable/ic_bot" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginLeft="11dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:fontFamily="sans-serif-medium"
+                                android:text="@string/menu_enable_ebot"
+                                android:textColor="#E8ECF4"
+                                android:textSize="15sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/menu_enable_ebot_sum"
+                                android:textColor="#7E8CA0"
+                                android:textSize="12sp" />
+
+                        </LinearLayout>
+
+                        <su.xash.cs16client.PillSwitch
+                            android:id="@+id/menu_enable_ebot"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginLeft="8dp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+                <!-- HL's own addon switch (never shares the CS ones) -->
+                <LinearLayout
+                    android:id="@+id/options_hl"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:id="@+id/row_hl_amxx"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/row_pressed"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:src="@drawable/ic_chip" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginLeft="11dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:fontFamily="sans-serif-medium"
+                                android:text="@string/menu_enable_hl_amxx"
+                                android:textColor="#E8ECF4"
+                                android:textSize="14sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/menu_enable_hl_amxx_sum"
+                                android:textColor="#7E8CA0"
+                                android:textSize="12sp" />
+
+                        </LinearLayout>
+
+                        <su.xash.cs16client.PillSwitch
+                            android:id="@+id/menu_enable_hl_amxx"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginLeft="8dp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+                <!-- THE play button: accent, full width, text follows the pick -->
+                <Button
+                    android:id="@+id/menu_launch"
+                    android:layout_width="match_parent"
+                    android:layout_height="54dp"
+                    android:layout_marginTop="13dp"
+                    android:background="@drawable/btn_gold"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center"
+                    android:text="@string/menu_launch"
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
+
+            <!-- TOOLS: reinstall addons etc. -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:letterSpacing="0.14"
+                android:text="@string/section_tools"
+                android:textColor="#7E8CA0"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/card_dark"
+                android:orientation="vertical"
+                android:paddingLeft="13dp"
+                android:paddingTop="6dp"
+                android:paddingRight="13dp"
+                android:paddingBottom="6dp">
+
+                <LinearLayout
+                    android:id="@+id/menu_reinstall"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/row_pressed"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
+                        android:src="@drawable/ic_refresh" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginLeft="11dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="sans-serif-medium"
+                            android:text="@string/menu_reinstall"
+                            android:textColor="#E8ECF4"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/tool_reinstall_sum"
+                            android:textColor="#7E8CA0"
+                            android:textSize="12sp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- STATUS: moved below the game flow (user asked to choose
+                 the game first) -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
                 android:letterSpacing="0.14"
                 android:text="@string/section_status"
                 android:textColor="#7E8CA0"
@@ -184,385 +598,6 @@
                         android:layout_height="wrap_content"
                         android:textColor="#7E8CA0"
                         android:textSize="13sp" />
-
-                </LinearLayout>
-
-            </LinearLayout>
-
-            <!-- GAME -->
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:letterSpacing="0.14"
-                android:text="@string/section_game"
-                android:textColor="#7E8CA0"
-                android:textSize="12sp" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:background="@drawable/card_dark"
-                android:orientation="vertical"
-                android:padding="13dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="sans-serif-medium"
-                    android:text="@string/game_card_cs"
-                    android:textColor="#E8ECF4"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-
-                <Button
-                    android:id="@+id/menu_launch"
-                    android:layout_width="match_parent"
-                    android:layout_height="48dp"
-                    android:layout_marginTop="9dp"
-                    android:background="@drawable/btn_neutral"
-                    android:fontFamily="sans-serif-medium"
-                    android:gravity="center"
-                    android:text="@string/menu_launch"
-                    android:textColor="#E8ECF4"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-
-            </LinearLayout>
-
-            <!-- build 115 per-game chooser: Half-Life card (its own addon
-                 switch - choosing HL never touches the CS bot switches) -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:background="@drawable/card_dark"
-                android:orientation="vertical"
-                android:padding="13dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="sans-serif-medium"
-                    android:text="@string/game_card_hl"
-                    android:textColor="#E8ECF4"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-
-                <LinearLayout
-                    android:id="@+id/row_hl_amxx"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:background="@drawable/row_pressed"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <ImageView
-                        android:layout_width="22dp"
-                        android:layout_height="22dp"
-                        android:src="@drawable/ic_chip" />
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginLeft="11dp"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:fontFamily="sans-serif-medium"
-                            android:text="@string/menu_enable_hl_amxx"
-                            android:textColor="#E8ECF4"
-                            android:textSize="14sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="@string/menu_enable_hl_amxx_sum"
-                            android:textColor="#7E8CA0"
-                            android:textSize="12sp" />
-
-                    </LinearLayout>
-
-                    <su.xash.cs16client.PillSwitch
-                        android:id="@+id/menu_enable_hl_amxx"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginLeft="8dp" />
-
-                </LinearLayout>
-
-                <Button
-                    android:id="@+id/menu_launch_hl"
-                    android:layout_width="match_parent"
-                    android:layout_height="48dp"
-                    android:layout_marginTop="9dp"
-                    android:background="@drawable/btn_neutral"
-                    android:fontFamily="sans-serif-medium"
-                    android:gravity="center"
-                    android:text="@string/menu_launch_hl"
-                    android:textColor="#E8ECF4"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-
-            </LinearLayout>
-
-            <!-- build 115: Condition Zero card (one app carries all three
-                 games now) -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:background="@drawable/card_dark"
-                android:orientation="vertical"
-                android:padding="13dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="sans-serif-medium"
-                    android:text="@string/game_card_cz"
-                    android:textColor="#E8ECF4"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-
-                <Button
-                    android:id="@+id/menu_launch_cz"
-                    android:layout_width="match_parent"
-                    android:layout_height="48dp"
-                    android:layout_marginTop="9dp"
-                    android:background="@drawable/btn_neutral"
-                    android:fontFamily="sans-serif-medium"
-                    android:gravity="center"
-                    android:text="@string/menu_launch_cz"
-                    android:textColor="#E8ECF4"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-
-            </LinearLayout>
-
-            <!-- SETTINGS -->
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:letterSpacing="0.14"
-                android:text="@string/menu_settings_header"
-                android:textColor="#7E8CA0"
-                android:textSize="12sp" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:background="@drawable/card_dark"
-                android:orientation="vertical"
-                android:paddingLeft="13dp"
-                android:paddingTop="6dp"
-                android:paddingRight="13dp"
-                android:paddingBottom="6dp">
-
-                <LinearLayout
-                    android:id="@+id/row_amxx"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/row_pressed"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <ImageView
-                        android:layout_width="22dp"
-                        android:layout_height="22dp"
-                        android:src="@drawable/ic_chip" />
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginLeft="11dp"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:fontFamily="sans-serif-medium"
-                            android:text="@string/menu_enable_amxx"
-                            android:textColor="#E8ECF4"
-                            android:textSize="15sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="@string/menu_enable_amxx_sum"
-                            android:textColor="#7E8CA0"
-                            android:textSize="12sp" />
-
-                    </LinearLayout>
-
-                    <su.xash.cs16client.PillSwitch
-                        android:id="@+id/menu_enable_amxx"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginLeft="8dp" />
-
-                </LinearLayout>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="11dp"
-                    android:layout_marginBottom="11dp"
-                    android:background="#2A303B" />
-
-                <LinearLayout
-                    android:id="@+id/row_yapb"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/row_pressed"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <ImageView
-                        android:layout_width="22dp"
-                        android:layout_height="22dp"
-                        android:src="@drawable/ic_bot" />
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginLeft="11dp"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:fontFamily="sans-serif-medium"
-                            android:text="@string/menu_enable_yapb"
-                            android:textColor="#E8ECF4"
-                            android:textSize="15sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="@string/menu_enable_yapb_sum"
-                            android:textColor="#7E8CA0"
-                            android:textSize="12sp" />
-
-                    </LinearLayout>
-
-                    <su.xash.cs16client.PillSwitch
-                        android:id="@+id/menu_enable_yapb"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginLeft="8dp" />
-
-                </LinearLayout>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="11dp"
-                    android:layout_marginBottom="11dp"
-                    android:background="#2A303B" />
-
-                <LinearLayout
-                    android:id="@+id/row_ebot"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/row_pressed"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <ImageView
-                        android:layout_width="22dp"
-                        android:layout_height="22dp"
-                        android:src="@drawable/ic_bot" />
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginLeft="11dp"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:fontFamily="sans-serif-medium"
-                            android:text="@string/menu_enable_ebot"
-                            android:textColor="#E8ECF4"
-                            android:textSize="15sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="@string/menu_enable_ebot_sum"
-                            android:textColor="#7E8CA0"
-                            android:textSize="12sp" />
-
-                    </LinearLayout>
-
-                    <su.xash.cs16client.PillSwitch
-                        android:id="@+id/menu_enable_ebot"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginLeft="8dp" />
-
-                </LinearLayout>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="11dp"
-                    android:layout_marginBottom="11dp"
-                    android:background="#2A303B" />
-
-                <LinearLayout
-                    android:id="@+id/menu_reinstall"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/row_pressed"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <ImageView
-                        android:layout_width="22dp"
-                        android:layout_height="22dp"
-                        android:src="@drawable/ic_refresh" />
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginLeft="11dp"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:fontFamily="sans-serif-medium"
-                            android:text="@string/menu_reinstall"
-                            android:textColor="#E8ECF4"
-                            android:textSize="15sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="@string/tool_reinstall_sum"
-                            android:textColor="#7E8CA0"
-                            android:textSize="12sp" />
-
-                    </LinearLayout>
 
                 </LinearLayout>
 
