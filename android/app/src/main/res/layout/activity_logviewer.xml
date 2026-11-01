@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/menu_bg"
+    android:fitsSystemWindows="true"
+    android:orientation="vertical">
+
+    <!-- top bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#14171E"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingLeft="14dp"
+        android:paddingTop="9dp"
+        android:paddingRight="14dp"
+        android:paddingBottom="9dp">
+
+        <ImageView
+            android:id="@+id/logviewer_back"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:clickable="true"
+            android:contentDescription="@string/back_desc"
+            android:focusable="true"
+            android:src="@drawable/ic_back" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="11dp"
+            android:fontFamily="sans-serif-medium"
+            android:text="@string/logviewer_title"
+            android:textColor="#E8ECF4"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/logviewer_path"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="middle"
+        android:paddingLeft="14dp"
+        android:paddingTop="8dp"
+        android:paddingRight="14dp"
+        android:singleLine="true"
+        android:textColor="#4E5666"
+        android:textSize="10sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingLeft="14dp"
+        android:paddingTop="10dp"
+        android:paddingRight="14dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:letterSpacing="0.14"
+            android:text="@string/settings_section_log"
+            android:textColor="#7E8CA0"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/logviewer_copy"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:layout_marginRight="6dp"
+            android:background="@drawable/btn_dark"
+            android:fontFamily="sans-serif-medium"
+            android:minWidth="0dp"
+            android:paddingLeft="10dp"
+            android:paddingRight="10dp"
+            android:text="@string/logviewer_copy"
+            android:textColor="#C9CFDB"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/logviewer_share"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:layout_marginRight="6dp"
+            android:background="@drawable/btn_dark"
+            android:fontFamily="sans-serif-medium"
+            android:minWidth="0dp"
+            android:paddingLeft="10dp"
+            android:paddingRight="10dp"
+            android:text="@string/logviewer_share"
+            android:textColor="#C9CFDB"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/logviewer_clear"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:layout_marginRight="6dp"
+            android:background="@drawable/btn_dark"
+            android:fontFamily="sans-serif-medium"
+            android:minWidth="0dp"
+            android:paddingLeft="10dp"
+            android:paddingRight="10dp"
+            android:text="@string/logviewer_clear"
+            android:textColor="#C9CFDB"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/logviewer_refresh"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:background="@drawable/btn_dark"
+            android:fontFamily="sans-serif-medium"
+            android:minWidth="0dp"
+            android:paddingLeft="10dp"
+            android:paddingRight="10dp"
+            android:text="@string/logviewer_refresh"
+            android:textColor="#C9CFDB"
+            android:textSize="11sp" />
+
+    </LinearLayout>
+
+    <ScrollView
+        android:id="@+id/logviewer_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_margin="14dp"
+        android:layout_weight="1"
+        android:background="@drawable/log_bg">
+
+        <TextView
+            android:id="@+id/logviewer_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:lineSpacingExtra="3dp"
+            android:padding="12dp"
+            android:textColor="#D6E2F0"
+            android:textIsSelectable="false"
+            android:textSize="11sp" />
+
+    </ScrollView>
+
+</LinearLayout>

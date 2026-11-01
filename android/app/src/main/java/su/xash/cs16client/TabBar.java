@@ -18,6 +18,7 @@ final class TabBar {
 	static final int TAB_PLUGINS = 1;
 	static final int TAB_MODULES = 2;
 	static final int TAB_COMPILE = 3;
+	static final int TAB_SETTINGS = 4; // build 113: launch options + engine log
 
 	private TabBar() {
 	}
@@ -35,11 +36,15 @@ final class TabBar {
 		style( activity, R.id.tab_compile_icon, R.id.tab_compile_label,
 			R.drawable.ic_code_white, R.drawable.ic_code_gray,
 			active == TAB_COMPILE );
+		style( activity, R.id.tab_settings_icon, R.id.tab_settings_label,
+			R.drawable.ic_gear_white, R.drawable.ic_gear_gray,
+			active == TAB_SETTINGS );
 
 		bind( activity, R.id.tab_launch, TAB_LAUNCH, active, MainActivity.class );
 		bind( activity, R.id.tab_plugins, TAB_PLUGINS, active, PluginsActivity.class );
 		bind( activity, R.id.tab_modules, TAB_MODULES, active, ModulesActivity.class );
 		bind( activity, R.id.tab_compile, TAB_COMPILE, active, CompilerActivity.class );
+		bind( activity, R.id.tab_settings, TAB_SETTINGS, active, SettingsActivity.class );
 	}
 
 	private static void style( Activity a, int iconId, int labelId,

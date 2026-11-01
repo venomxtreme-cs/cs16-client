@@ -89,4 +89,30 @@
     <string name="modules_section_installed">INSTALLED</string>
     <string name="modules_empty">No custom modules installed for this game.</string>
     <string name="modules_restart_note">Restart the game for changes to take effect.</string>
+
+    <!-- settings tab + engine log viewer (build 113) -->
+    <string name="tab_settings">Settings</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_sub">Launch options, engine log and app info.</string>
+    <string name="settings_section_log">ENGINE LOG</string>
+    <string name="settings_section_launch">LAUNCH OPTIONS</string>
+    <string name="settings_section_about">ABOUT</string>
+    <string name="settings_log_open">VIEW LOG</string>
+    <string name="settings_log_share">SHARE</string>
+    <string name="settings_log_clear">CLEAR</string>
+    <string name="settings_log_missing">No engine.log yet - launch the game once with the log option on.</string>
+    <string name="settings_log_cleared">Engine log cleared</string>
+    <string name="settings_opt_log">Write engine log</string>
+    <string name="settings_opt_log_sum">-log: keeps engine.log updated so it can be read here</string>
+    <string name="settings_opt_dev">Developer output</string>
+    <string name="settings_opt_dev_sum">-dev 2: extra engine detail in the log</string>
+    <string name="settings_engine_missing">Engine app: MISSING</string>
+    <string name="logviewer_title">Engine log</string>
+    <string name="logviewer_empty">engine.log is empty</string>
+    <string name="logviewer_copy">COPY</string>
+    <string name="logviewer_share">SHARE</string>
+    <string name="logviewer_clear">CLEAR</string>
+    <string name="logviewer_refresh">REFRESH</string>
+    <string name="logviewer_copied">Log copied</string>
+    <string name="logviewer_nothing">Nothing to share yet</string>
 </resources>

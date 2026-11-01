@@ -717,8 +717,18 @@ public class MainActivity extends Activity {
                         .setFlags( Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK )
                         .putExtra( "gamedir", "cstrike" )
                         .putExtra( "gamelibdir", getApplicationInfo().nativeLibraryDir )
-                        .putExtra( "argv", "-dev 2 -log" )  // no -dll @yapb -- YaPB loads via metamod plugins.ini
                         .putExtra( "package", getPackageName() );
+
+                // build 113: argv comes from the Settings tab (the old
+                // hard-coded "-dev 2 -log" is just both switches at their
+                // default position; turning a switch off drops its flag)
+                android.content.SharedPreferences sp = getPreferences( MODE_PRIVATE );
+                StringBuilder argv = new StringBuilder();
+                if( sp.getBoolean( "engine_dev", true ))
+                        argv.append( "-dev 2 " );
+                if( sp.getBoolean( "engine_log", true ))
+                        argv.append( "-log" );
+                launch.putExtra( "argv", argv.toString().trim() );
 
                 // both switches off: bypass metamod entirely and load the
                 // original server library directly (same gate the engine

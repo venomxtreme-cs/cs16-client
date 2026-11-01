@@ -55,6 +55,17 @@
             android:theme="@android:style/Theme.NoTitleBar"
             android:exported="false" />
 
+        <!-- build 113: Settings tab (launch options + engine crash log)
+             and the full-screen log reader -->
+        <activity
+            android:name=".SettingsActivity"
+            android:theme="@android:style/Theme.NoTitleBar"
+            android:exported="false" />
+        <activity
+            android:name=".LogViewerActivity"
+            android:theme="@android:style/Theme.NoTitleBar"
+            android:exported="false" />
+
                 <activity
                         android:name=".CZeroActivity"
                         android:icon="@mipmap/ic_launcher_cz"
