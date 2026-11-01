@@ -51,13 +51,15 @@ import java.util.concurrent.atomic.AtomicLong;
  * Forced update gate for the launcher.
  *
  * On every start the launcher asks GitHub for the latest published release
- * and compares its build number (the NN in the 1.35.NN-<hash> tag, which is
- * identical to this app's versionName) with the one compiled in. If a newer
- * build exists a blocking dark card shows the release notes with sections,
- * the two versions side by side, live download progress (size counter) and
- * an install/retry flow - update or exit, there is no "continue with the
- * old version". Builds without a build number in their versionName
- * (pre-1.35.NN installs) count as build 0 so they are asked to update too.
+ * and compares its version score (MAJOR.MINOR.BUILD packed from the tag,
+ * e.g. 1.36.01-<hash> - identical to this app's versionName) with the one
+ * compiled in. If a newer build exists a blocking dark card shows the
+ * release notes with sections, the two versions side by side, live download
+ * progress (size counter) and an install/retry flow - update or exit, there
+ * is no "continue with the old version". Era-agnostic: the era prefix is
+ * NOT hard-coded (a 1.35-only regex scored the 1.36.01 tag as 0 and the
+ * gate wrongly reported "up to date"), so any 1.xx.NN tag orders correctly.
+ * Tags without a version score 0 so the very oldest installs are asked too.
  *
  * If the check cannot run (no network, GitHub unreachable, API rate limit)
  * the launcher starts normally - only a CONFIRMED newer release blocks.
@@ -109,7 +111,7 @@ final class UpdateChecker {
         if( BuildConfig.IS_GOOGLE_PLAY_BUILD )
             return; // the store build updates through the store
 
-        final int localBuild = buildNumberFrom( BuildConfig.VERSION_NAME );
+        final long localBuild = versionScore( BuildConfig.VERSION_NAME );
 
         new Thread( new Runnable() {
             @Override
@@ -126,7 +128,7 @@ final class UpdateChecker {
                     if( release == null )
                         return;
 
-                    int remoteBuild = buildNumberFrom( release.tag );
+                    long remoteBuild = versionScore( release.tag );
                     if( remoteBuild <= localBuild )
                         return; // up to date
 
@@ -187,7 +189,7 @@ final class UpdateChecker {
             // page and take the highest build number instead of [0]
             JSONArray arr = new JSONArray( sb.toString() );
             JSONObject best = null;
-            int bestBuild = -1;
+            long bestBuild = -1;
             for( int i = 0; i < arr.length(); i++ ) {
                 JSONObject rel = arr.optJSONObject( i );
                 if( rel == null )
@@ -195,7 +197,7 @@ final class UpdateChecker {
                 String t = rel.optString( "tag_name", "" );
                 if( t.isEmpty() )
                     continue;
-                int b = buildNumberFrom( t );
+                long b = versionScore( t );
                 if( b > bestBuild ) {
                     bestBuild = b;
                     best = rel;
@@ -214,17 +216,47 @@ final class UpdateChecker {
     }
 
     /** NN of a "1.35.NN-<hash>" tag/version, or 0 when there is none. */
-    private static int buildNumberFrom( String name ) {
-        if( name == null )
+    /**
+     * Comparable score packed from the MAJOR.MINOR.BUILD prefix of a tag or
+     * versionName ("1.36.01-017aae27" -> 1 * 1_000_000 + 36 * 1_000 + 1).
+     *
+     * Era-agnostic on purpose: the old hard-coded 1\.35 regex scored the
+     * first 1.36.xx tag as 0, the gate then saw remote(0) <= local(36),
+     * reported "up to date" and NEVER offered the massive-update release
+     * (user report: "i didn't receive update in current version app").
+     * The packed score orders correctly across eras: 1.36.01 (1,036,001)
+     * > 1.35.36 (1,035,036). Tags without a version still score 0, so
+     * very old installs keep asking to update.
+     */
+    private static long versionScore( String name ) {
+        int[] v = versionParts( name );
+        if( v == null )
             return 0;
+        return v[0] * 1_000_000L + v[1] * 1_000L + v[2];
+    }
+
+    /** "development build NN" from a legacy 1.xx.NN tag, else the tag */
+    private static String buildLabel( String tag ) {
+        int[] v = versionParts( tag );
+        return v != null ? "development build " + v[2] : tag;
+    }
+
+    /** MAJOR, MINOR and BUILD of the first x.y.z in the string, else null */
+    private static int[] versionParts( String name ) {
+        if( name == null )
+            return null;
         java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile( "1\\.35\\.(\\d+)" ).matcher( name );
+                .compile( "(\\d+)\\.(\\d+)\\.(\\d+)" ).matcher( name );
         if( m.find() ) {
             try {
-                return Integer.parseInt( m.group( 1 ) );
+                return new int[] {
+                    Integer.parseInt( m.group( 1 )),
+                    Integer.parseInt( m.group( 2 )),
+                    Integer.parseInt( m.group( 3 ))
+                };
             } catch( NumberFormatException ignored) { }
         }
-        return 0;
+        return null;
     }
 
     // ------------------------------------------------------------------
@@ -233,7 +265,7 @@ final class UpdateChecker {
 
     private static void showDialog( final Activity activity, final Release release ) {
 
-        final int remoteBuild = buildNumberFrom( release.tag );
+        
 
         final Dialog dialog = new Dialog( activity );
         dialog.setCancelable( false );
@@ -268,7 +300,7 @@ final class UpdateChecker {
         from.setText( BuildConfig.VERSION_NAME );
         to.setText( release.tag );
         releaseTitle.setText( release.name.isEmpty()
-                ? "development build " + remoteBuild : release.name );
+                ? buildLabel( release.tag ) : release.name );
         date.setText( formatDate( release.publishedAt ));
         changelog.setText( renderChangelog( release.body ));
 
