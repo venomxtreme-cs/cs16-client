@@ -28,7 +28,7 @@ final class EngineLog {
 	/** every place the engine may have left the log, newest first pick */
 	static File[] candidates( Context ctx ) {
 		File ext = Environment.getExternalStorageDirectory();
-		File[] extFiles = null;
+		File extFiles = null;
 		try {
 			extFiles = ctx.getExternalFilesDir( null );
 		} catch( Throwable ignored ) {
