@@ -8,8 +8,16 @@
     <string name="menu_sub">AMX Mod X edition</string>
     <string name="menu_launch">PLAY COUNTER-STRIKE</string>
     <string name="menu_launch_hl">PLAY HALF-LIFE</string>
-    <string name="menu_launch_hl_sum"> valve game files required in /sdcard/xash/valve</string>
+    <string name="menu_launch_cz">PLAY CONDITION ZERO</string>
+    <string name="menu_launch_hl_sum">valve game files required in /sdcard/xash/valve</string>
     <string name="menu_hl_missing">Half-Life files not found in /sdcard/xash/valve - copy them first</string>
+    <string name="menu_hl_no_paks">Half-Life folder exists but has no pak*.pak game files in /sdcard/xash/valve</string>
+    <string name="menu_cz_missing">Condition Zero files not found in /sdcard/xash/czero - copy them first</string>
+    <string name="game_card_cs">COUNTER-STRIKE 1.6</string>
+    <string name="game_card_hl">HALF-LIFE</string>
+    <string name="game_card_cz">CONDITION ZERO</string>
+    <string name="menu_enable_hl_amxx">HL addons (Metamod / AMX Mod X)</string>
+    <string name="menu_enable_hl_amxx_sum">Loads the Half-Life add-on bundle on launch</string>
     <string name="menu_settings_header">SETTINGS</string>
     <string name="section_status">STATUS</string>
     <string name="section_game">GAME</string>

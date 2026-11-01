@@ -700,9 +700,13 @@ public class MainActivity extends Activity {
         // build 114 merge: the engine (XashActivity) lives in THIS app now, so
         // there is no su.xash.engine package to look up and no download-page
         // fallback - the intent targets the local class directly.
-        private void launchEngine( String gamedir, String extraArgs ) {
+        // build 115 (back kick): NO FLAG_ACTIVITY_CLEAR_TASK and NO finish() -
+        // the launcher must stay under XashActivity in the task stack so the
+        // game's back button returns HERE instead of exiting the whole app
+        // (the 114 combo left XashActivity as the only activity: back = home
+        // screen + recents re-entry hit a dead GL window).
+        private void launchEngine( String gamedir, String extraArgs, boolean disableAmxx ) {
                 Intent launch = new Intent( this, su.xash.engine.XashActivity.class )
-                        .setFlags( Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK )
                         .putExtra( "gamedir", gamedir )
                         .putExtra( "gamelibdir", getApplicationInfo().nativeLibraryDir )
                         .putExtra( "package", getPackageName() );
@@ -722,15 +726,33 @@ public class MainActivity extends Activity {
                 }
                 launch.putExtra( "argv", argv.toString().trim() );
 
-                // cstrike only: both bot/amxx switches off bypasses metamod
-                // entirely and loads the original server library directly
-                // (same gate the engine menu used to send as XASH3D_DISABLE_AMXX)
-                if( "cstrike".equals( gamedir )
-                                && !isAmxxOn() && !isYapbOn() && !isEbotOn() )
+                // bypass metamod entirely and load the original server library
+                // directly (same gate the engine menu used to send as
+                // XASH3D_DISABLE_AMXX) - caller decides per game: CS uses the
+                // three switches, HL uses its own addon switch, CZ never
+                if( disableAmxx )
                         launch.putExtra( "env", new String[]{ "XASH3D_DISABLE_AMXX", "1" } );
 
                 startActivity( launch );
-                finish();
+                // deliberately NO finish(): back in the game pops to this menu
+        }
+
+        // build 115: per-game data guards look for pak*.pak (any number, any
+        // case) instead of only pak0.pak, and HL distinguishes "no valve
+        // folder" from "valve folder without game paks" - the addon installer
+        // auto-creates valve/addons on every launch, so a valve folder that
+        // only holds the addon tree used to be reported as a missing game
+        // (the real symptom: "valve folder already in xash folder" but no find)
+        private boolean hasGamePaks( String gamedir ) {
+                File[] files = new File( getXashDir(), gamedir ).listFiles();
+                if( files == null ) return false;
+
+                for( File f : files ) {
+                        String n = f.getName().toLowerCase();
+                        if( f.isFile() && n.startsWith( "pak" ) && n.endsWith( ".pak" ))
+                                return true;
+                }
+                return false;
         }
 
         // build 114: Half-Life choice. The HL CLIENT dll ships in this APK
@@ -744,9 +766,13 @@ public class MainActivity extends Activity {
                         return;
                 }
 
-                // the engine only starts valve when its game data exists
-                if( !new File( getXashDir(), "valve/pak0.pak" ).isFile()) {
+                if( !new File( getXashDir(), "valve" ).isDirectory()) {
                         Toast.makeText( this, R.string.menu_hl_missing,
+                                Toast.LENGTH_LONG ).show();
+                        return;
+                }
+                if( !hasGamePaks( "valve" )) {
+                        Toast.makeText( this, R.string.menu_hl_no_paks,
                                 Toast.LENGTH_LONG ).show();
                         return;
                 }
@@ -759,7 +785,35 @@ public class MainActivity extends Activity {
                 String clientLib = new File( getApplicationInfo().nativeLibraryDir,
                         "libhlclient_android_" + arch + ".so" ).getAbsolutePath();
 
-                launchEngine( "valve", "-clientlib " + clientLib );
+                // build 115: HL uses ITS OWN addon switch (enable_hl_amxx) -
+                // the CS bot/amxx switches never touch a Half-Life session,
+                // so "choosing Half-Life = no ebot/CS addons" holds by design
+                android.content.SharedPreferences sp = getPreferences( MODE_PRIVATE );
+                boolean hlAmxx = sp.getBoolean( "enable_hl_amxx", true );
+
+                launchEngine( "valve", "-clientlib " + clientLib, !hlAmxx );
+        }
+
+        // build 115: Condition Zero joins the chooser inside the same app -
+        // same engine binary, gamedir=czero, CS client library. Launched
+        // through launchEngine() (NOT the old CZeroActivity trampoline, which
+        // still carried FLAG_ACTIVITY_CLEAR_TASK and would recreate the
+        // build-114 back-button bug by wiping this launcher off the stack).
+        // CZ plays plain: disableAmxx=true - no CS metamod/amxx/bot addons
+        private void onCZeroPressed() {
+                if( !hasStorageAccess() ) {
+                        requestStorageAccess();
+                        return;
+                }
+
+                if( !new File( getXashDir(), "czero" ).isDirectory()
+                                || !hasGamePaks( "czero" )) {
+                        Toast.makeText( this, R.string.menu_cz_missing,
+                                Toast.LENGTH_LONG ).show();
+                        return;
+                }
+
+                launchEngine( "czero", null, true );
         }
 
         // ------------------------------------------------------------------
@@ -852,6 +906,46 @@ public class MainActivity extends Activity {
                                 }
                         });
 
+                // build 115: Condition Zero card + the Half-Life addon switch
+                // (persisted as enable_hl_amxx, read in onHalfLifePressed -
+                // it never touches the CS amxx/yapb/ebot switches)
+                android.view.View czBtn = findViewById( R.id.menu_launch_cz );
+                if( czBtn != null )
+                        czBtn.setOnClickListener(
+                                        new android.view.View.OnClickListener() {
+                                @Override
+                                public void onClick( android.view.View v ) {
+                                        onCZeroPressed();
+                                }
+                        });
+
+                final PillSwitch hlAmxxSwitch = (PillSwitch)
+                        findViewById( R.id.menu_enable_hl_amxx );
+                if( hlAmxxSwitch != null ) {
+                        hlAmxxSwitch.setChecked(
+                                getPreferences( MODE_PRIVATE )
+                                        .getBoolean( "enable_hl_amxx", true ));
+                        hlAmxxSwitch.setOnCheckedChangeListener(
+                                        new PillSwitch.OnCheckedChangeListener() {
+                                @Override
+                                public void onCheckedChanged( PillSwitch buttonView,
+                                                              boolean checked ) {
+                                        getPreferences( MODE_PRIVATE ).edit()
+                                                .putBoolean( "enable_hl_amxx", checked )
+                                                .apply();
+                                }
+                        });
+                        android.view.View hlRow = findViewById( R.id.row_hl_amxx );
+                        if( hlRow != null )
+                                hlRow.setOnClickListener(
+                                                new android.view.View.OnClickListener() {
+                                        @Override
+                                        public void onClick( android.view.View v ) {
+                                                hlAmxxSwitch.toggle();
+                                        }
+                                });
+                }
+
                 // shared bottom tab bar: Launch tab is inert here (the
                 // active tab does nothing on tap), the other tabs
                 // open their screens.
@@ -937,7 +1031,11 @@ public class MainActivity extends Activity {
                 ensureZpxVaultSeeds();
                 // and custom module lines are back in place after any rewrite
                 ModuleInstaller.reapplyAll();
-                launchEngine( "cstrike", null );
+                // build 115: the CS launcher decides the metamod bypass from
+                // ALL THREE CS switches (amxx/yapb/ebot) - its own gate, the
+                // HL/CZ cards never come through here
+                launchEngine( "cstrike", null,
+                        !isAmxxOn() && !isYapbOn() && !isEbotOn() );
         }
 
         private void refreshMenuStatus() {

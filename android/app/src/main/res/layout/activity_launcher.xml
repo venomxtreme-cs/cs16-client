@@ -207,10 +207,20 @@
                 android:orientation="vertical"
                 android:padding="13dp">
 
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="@string/game_card_cs"
+                    android:textColor="#E8ECF4"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
                 <Button
                     android:id="@+id/menu_launch"
                     android:layout_width="match_parent"
                     android:layout_height="48dp"
+                    android:layout_marginTop="9dp"
                     android:background="@drawable/btn_neutral"
                     android:fontFamily="sans-serif-medium"
                     android:gravity="center"
@@ -219,9 +229,74 @@
                     android:textSize="15sp"
                     android:textStyle="bold" />
 
-                <!-- build 114 merge: the second game choice, like the engine
-                     app's library - launches the same in-app engine with
-                     gamedir=valve instead of cstrike -->
+            </LinearLayout>
+
+            <!-- build 115 per-game chooser: Half-Life card (its own addon
+                 switch - choosing HL never touches the CS bot switches) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/card_dark"
+                android:orientation="vertical"
+                android:padding="13dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="@string/game_card_hl"
+                    android:textColor="#E8ECF4"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/row_hl_amxx"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/row_pressed"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
+                        android:src="@drawable/ic_chip" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginLeft="11dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="sans-serif-medium"
+                            android:text="@string/menu_enable_hl_amxx"
+                            android:textColor="#E8ECF4"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/menu_enable_hl_amxx_sum"
+                            android:textColor="#7E8CA0"
+                            android:textSize="12sp" />
+
+                    </LinearLayout>
+
+                    <su.xash.cs16client.PillSwitch
+                        android:id="@+id/menu_enable_hl_amxx"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginLeft="8dp" />
+
+                </LinearLayout>
+
                 <Button
                     android:id="@+id/menu_launch_hl"
                     android:layout_width="match_parent"
@@ -231,6 +306,40 @@
                     android:fontFamily="sans-serif-medium"
                     android:gravity="center"
                     android:text="@string/menu_launch_hl"
+                    android:textColor="#E8ECF4"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
+
+            <!-- build 115: Condition Zero card (one app carries all three
+                 games now) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/card_dark"
+                android:orientation="vertical"
+                android:padding="13dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="@string/game_card_cz"
+                    android:textColor="#E8ECF4"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/menu_launch_cz"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="9dp"
+                    android:background="@drawable/btn_neutral"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center"
+                    android:text="@string/menu_launch_cz"
                     android:textColor="#E8ECF4"
                     android:textSize="15sp"
                     android:textStyle="bold" />
