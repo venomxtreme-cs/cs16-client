@@ -98,19 +98,38 @@ public class XashActivity extends SDLActivity {
 		}
 	}
 
-	// build 116 (user: "back returns to main launcher, not pause - fix it"):
-	// Android back = PAUSE the game (the GoldSource ESC/menu key), never
-	// leave this activity. SDLActivity's default onBackPressed() finishes
-	// the activity, which runs onDestroy -> System.exit(0) - the whole
-	// app died on every back press (that was the "it returns me to the
-	// launcher" from build 115; 114's fix could not work against it).
-	// Inject ESC down+up straight into SDL's native key path: the engine
-	// sees keydest=game -> ESC -> mainui pauses/opens. Exiting the game is
-	// done from the in-game menu (quit), same as on PC.
+	// build 117 (user: "back STILL returns to the app launcher, not pause")
+	// - the build-116 onBackPressed() override NEVER RAN: the SDL surface's
+	// OnKeyListener (handleKeyEvent) consumes KEYCODE_BACK first and hands
+	// the raw back key to the engine, which treats it as quit-the-session -
+	// SDLActivity then closes itself and drops back to the CS16Fresh
+	// launcher screen. So the back key is now intercepted at the gateway
+	// (dispatchKeyEvent), BEFORE SDL/the view/JNI ever see it, and swapped
+	// for the GoldSource ESC key = in-game pause menu. The engine only
+	// ever sees ESC; the real BACK never propagates to SDL, the engine or
+	// the activity stack. Exiting the game is done from the in-game menu.
+	@Override
+	public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+		if (event.getKeyCode() == android.view.KeyEvent.KEYCODE_BACK) {
+			final int esc = android.view.KeyEvent.KEYCODE_ESCAPE;
+			if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+				if (!event.isRepeat() && !event.isCanceled())
+					onNativeKeyDown(esc);
+			} else if (event.getAction() == android.view.KeyEvent.ACTION_UP) {
+				onNativeKeyUp(esc);
+			}
+			// marker string scanned from the dex to prove this build ships
+			android.util.Log.i("XashBack", "build117: back swallowed, ESC sent to engine");
+			return true;
+		}
+		return super.dispatchKeyEvent(event);
+	}
+
+	// belt: unreachable while dispatchKeyEvent swallows BACK, kept so no
+	// other path can ever finish this activity from a back press
 	@Override
 	public void onBackPressed() {
-		onNativeKeyDown(android.view.KeyEvent.KEYCODE_ESCAPE);
-		onNativeKeyUp(android.view.KeyEvent.KEYCODE_ESCAPE);
+		// intentionally empty - back must never leave the running game
 	}
 
 	// JNI reads a snapshot; all View access stays on Android's UI thread.
