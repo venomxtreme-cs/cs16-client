@@ -697,25 +697,13 @@ public class MainActivity extends Activity {
         // engine launch
         // ------------------------------------------------------------------
 
-        private void launchEngine() {
-                String pkg = "su.xash.engine.test";
-
-                try {
-                        getPackageManager().getPackageInfo( pkg, 0 );
-                } catch( PackageManager.NameNotFoundException e ) {
-                        try {
-                                pkg = "su.xash.engine";
-                                getPackageManager().getPackageInfo( pkg, 0 );
-                        } catch( PackageManager.NameNotFoundException ex ) {
-                                startActivity( new Intent( Intent.ACTION_VIEW, Uri.parse( "https://github.com/FWGS/xash3d-fwgs/releases/tag/continuous" ) ).setFlags( Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK ) );
-                                finish();
-                                return;
-                        }
-                }
-
-                Intent launch = new Intent().setComponent( new ComponentName( pkg, "su.xash.engine.XashActivity" ) )
+        // build 114 merge: the engine (XashActivity) lives in THIS app now, so
+        // there is no su.xash.engine package to look up and no download-page
+        // fallback - the intent targets the local class directly.
+        private void launchEngine( String gamedir, String extraArgs ) {
+                Intent launch = new Intent( this, su.xash.engine.XashActivity.class )
                         .setFlags( Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK )
-                        .putExtra( "gamedir", "cstrike" )
+                        .putExtra( "gamedir", gamedir )
                         .putExtra( "gamelibdir", getApplicationInfo().nativeLibraryDir )
                         .putExtra( "package", getPackageName() );
 
@@ -728,16 +716,50 @@ public class MainActivity extends Activity {
                         argv.append( "-dev 2 " );
                 if( sp.getBoolean( "engine_log", true ))
                         argv.append( "-log" );
+                if( extraArgs != null && !extraArgs.isEmpty()) {
+                        if( argv.length() > 0 ) argv.append( ' ' );
+                        argv.append( extraArgs );
+                }
                 launch.putExtra( "argv", argv.toString().trim() );
 
-                // both switches off: bypass metamod entirely and load the
-                // original server library directly (same gate the engine
-                // menu used to send as XASH3D_DISABLE_AMXX).
-                if( !isAmxxOn() && !isYapbOn() && !isEbotOn() )
+                // cstrike only: both bot/amxx switches off bypasses metamod
+                // entirely and loads the original server library directly
+                // (same gate the engine menu used to send as XASH3D_DISABLE_AMXX)
+                if( "cstrike".equals( gamedir )
+                                && !isAmxxOn() && !isYapbOn() && !isEbotOn() )
                         launch.putExtra( "env", new String[]{ "XASH3D_DISABLE_AMXX", "1" } );
 
                 startActivity( launch );
                 finish();
+        }
+
+        // build 114: Half-Life choice. The HL CLIENT dll ships in this APK
+        // under a non-colliding name (libhlclient_android_<arch>.so - the CS
+        // client owns libclient_android_<arch>.so), so the engine gets its
+        // absolute path via -clientlib; the HL SERVER dll (libhl_android_*)
+        // ships under its own name and is found normally.
+        private void onHalfLifePressed() {
+                if( !hasStorageAccess() ) {
+                        requestStorageAccess();
+                        return;
+                }
+
+                // the engine only starts valve when its game data exists
+                if( !new File( getXashDir(), "valve/pak0.pak" ).isFile()) {
+                        Toast.makeText( this, R.string.menu_hl_missing,
+                                Toast.LENGTH_LONG ).show();
+                        return;
+                }
+
+                String arch = "arm64";
+                if( Build.SUPPORTED_ABIS != null && Build.SUPPORTED_ABIS.length > 0
+                                && "armeabi-v7a".equals( Build.SUPPORTED_ABIS[0] ))
+                        arch = "armv7l";
+
+                String clientLib = new File( getApplicationInfo().nativeLibraryDir,
+                        "libhlclient_android_" + arch + ".so" ).getAbsolutePath();
+
+                launchEngine( "valve", "-clientlib " + clientLib );
         }
 
         // ------------------------------------------------------------------
@@ -817,6 +839,18 @@ public class MainActivity extends Activity {
                                 onLaunchPressed();
                         }
                 });
+
+                // build 114 merge: the second game choice - same in-app
+                // engine, gamedir=valve
+                android.view.View hlBtn = findViewById( R.id.menu_launch_hl );
+                if( hlBtn != null )
+                        hlBtn.setOnClickListener(
+                                        new android.view.View.OnClickListener() {
+                                @Override
+                                public void onClick( android.view.View v ) {
+                                        onHalfLifePressed();
+                                }
+                        });
 
                 // shared bottom tab bar: Launch tab is inert here (the
                 // active tab does nothing on tap), the other tabs
@@ -903,7 +937,7 @@ public class MainActivity extends Activity {
                 ensureZpxVaultSeeds();
                 // and custom module lines are back in place after any rewrite
                 ModuleInstaller.reapplyAll();
-                launchEngine();
+                launchEngine( "cstrike", null );
         }
 
         private void refreshMenuStatus() {
@@ -938,17 +972,10 @@ public class MainActivity extends Activity {
         }
 
         private boolean enginePresent() {
-                try {
-                        getPackageManager().getPackageInfo( "su.xash.engine.test", 0 );
-                        return true;
-                } catch( PackageManager.NameNotFoundException e ) {
-                        try {
-                                getPackageManager().getPackageInfo( "su.xash.engine", 0 );
-                                return true;
-                        } catch( PackageManager.NameNotFoundException ex ) {
-                                return false;
-                        }
-                }
+                // build 114 merge: the engine is compiled INTO this app
+                // (su.xash.engine.XashActivity + libxash/libSDL2 in this APK),
+                // so there is no separate engine package to look up anymore.
+                return true;
         }
 
         /**

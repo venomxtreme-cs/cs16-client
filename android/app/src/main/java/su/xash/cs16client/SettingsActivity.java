@@ -97,20 +97,13 @@ public class SettingsActivity extends Activity {
 
 		try {
 			PackageInfo pi = getPackageManager().getPackageInfo( getPackageName(), 0 );
-			version.setText( "CS16Client  v" + pi.versionName );
+			version.setText( "CS16Fresh  v" + pi.versionName );
 		} catch( Throwable t ) {
-			version.setText( "CS16Client" );
+			version.setText( "CS16Fresh" );
 		}
 
-		String[] enginePkgs = { "su.xash.engine.test", "su.xash.engine" };
-		for( String pkg : enginePkgs ) {
-			try {
-				PackageInfo pi = getPackageManager().getPackageInfo( pkg, 0 );
-				engine.setText( "Engine app: " + pkg + "  v" + pi.versionName );
-				return;
-			} catch( PackageManager.NameNotFoundException ignored ) {
-			}
-		}
+		// build 114 merge: the engine is compiled into this APK - there is no
+		// separate engine package to report anymore
 		engine.setText( R.string.settings_engine_missing );
 	}
 }

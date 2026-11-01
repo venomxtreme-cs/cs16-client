@@ -2,6 +2,37 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- build 114 merge: engine (XashActivity) permissions that the game
+         manifest didn't have yet -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!-- OpenGL ES 1.1 (engine needs it; Play-store-style feature filter) -->
+    <uses-feature android:glEsVersion="0x00010000" />
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.bluetooth"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.gamepad"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.type.pc"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+
     <!-- AMX Mod X addons auto-install writes into /storage/emulated/0/xash -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
@@ -88,6 +119,23 @@
         <receiver
             android:name=".InstallStatusReceiver"
             android:exported="false" />
+
+        <!-- build 114 merge: the Xash3D engine surface lives in THIS app now
+             (was su.xash.engine.XashActivity in the separate engine app).
+             The window is always fullscreen, so the system ignores
+             windowSoftInputMode and SoftKeyboardPan pans the view on its own -->
+        <activity
+            android:name="su.xash.engine.XashActivity"
+            android:alwaysRetainTaskState="true"
+            android:configChanges="orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|touchscreen"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:preferMinimalPostProcessing="true"
+            android:windowSoftInputMode="adjustPan">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+        </activity>
     </application>
 
     <queries>

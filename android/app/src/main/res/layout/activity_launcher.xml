@@ -219,6 +219,22 @@
                     android:textSize="15sp"
                     android:textStyle="bold" />
 
+                <!-- build 114 merge: the second game choice, like the engine
+                     app's library - launches the same in-app engine with
+                     gamedir=valve instead of cstrike -->
+                <Button
+                    android:id="@+id/menu_launch_hl"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="9dp"
+                    android:background="@drawable/btn_neutral"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center"
+                    android:text="@string/menu_launch_hl"
+                    android:textColor="#E8ECF4"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
             </LinearLayout>
 
             <!-- SETTINGS -->

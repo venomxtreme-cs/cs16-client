@@ -1,10 +1,7 @@
 package su.xash.cs16client;
 
 import android.app.Activity;
-import android.content.ComponentName;
 import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.net.Uri;
 import android.os.Bundle;
 
 public class CZeroActivity extends Activity {
@@ -12,22 +9,9 @@ public class CZeroActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        String pkg = "su.xash.engine.test";
-
-        try {
-            getPackageManager().getPackageInfo(pkg, 0);
-        } catch (PackageManager.NameNotFoundException e) {
-            try {
-                pkg = "su.xash.engine";
-                getPackageManager().getPackageInfo(pkg, 0);
-            } catch (PackageManager.NameNotFoundException ex) {
-                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/FWGS/xash3d-fwgs/releases/tag/continuous")).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
-                finish();
-                return;
-            }
-        }
-
-        startActivity(new Intent().setComponent(new ComponentName(pkg, "su.xash.engine.XashActivity"))
+        // build 114 merge: the engine is part of this app now - no external
+        // su.xash.engine package lookup and no download-page fallback.
+        startActivity(new Intent(this, su.xash.engine.XashActivity.class)
                 .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK)
                 .putExtra("gamedir", "czero")
                 .putExtra("gamelibdir", getApplicationInfo().nativeLibraryDir)

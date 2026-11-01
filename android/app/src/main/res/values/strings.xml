@@ -1,16 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">CS16Client</string>
+    <string name="app_name">CS16Fresh</string>
 
     <!-- launcher menu -->
-    <string name="menu_top_title">CS16Client</string>
+    <string name="menu_top_title">CS16Fresh</string>
     <string name="menu_title">Counter-Strike 1.6</string>
     <string name="menu_sub">AMX Mod X edition</string>
-    <string name="menu_launch">LAUNCH</string>
+    <string name="menu_launch">PLAY COUNTER-STRIKE</string>
+    <string name="menu_launch_hl">PLAY HALF-LIFE</string>
+    <string name="menu_launch_hl_sum"> valve game files required in /sdcard/xash/valve</string>
+    <string name="menu_hl_missing">Half-Life files not found in /sdcard/xash/valve - copy them first</string>
     <string name="menu_settings_header">SETTINGS</string>
     <string name="section_status">STATUS</string>
     <string name="section_game">GAME</string>
-    <string name="status_engine">Engine app</string>
+    <string name="status_engine">Engine</string>
     <string name="status_addons">Addons bundle</string>
     <string name="status_installed">Installed</string>
     <string name="status_missing">Missing</string>
@@ -34,8 +37,8 @@
     <string name="menu_compile">Compile SMA plugin</string>
     <string name="menu_plugins">Plugins (.ini editor)</string>
     <string name="menu_reinstall">Re-install addons</string>
-    <string name="menu_status_ok">Engine app: installed</string>
-    <string name="menu_status_missing">Engine app: MISSING - LAUNCH opens the download page</string>
+    <string name="menu_status_ok">Engine: built in (no second app needed)</string>
+    <string name="menu_status_missing">Engine: built in (no second app needed)</string>
     <string name="menu_addons_ok">Addons bundle: installed</string>
     <string name="menu_addons_missing">Addons bundle: will install on launch</string>
     <string name="menu_reinstalled">Addons re-installed</string>
@@ -106,7 +109,7 @@
     <string name="settings_opt_log_sum">-log: keeps engine.log updated so it can be read here</string>
     <string name="settings_opt_dev">Developer output</string>
     <string name="settings_opt_dev_sum">-dev 2: extra engine detail in the log</string>
-    <string name="settings_engine_missing">Engine app: MISSING</string>
+    <string name="settings_engine_missing">Engine: built in (CS16Fresh)</string>
     <string name="logviewer_title">Engine log</string>
     <string name="logviewer_empty">engine.log is empty</string>
     <string name="logviewer_copy">COPY</string>
