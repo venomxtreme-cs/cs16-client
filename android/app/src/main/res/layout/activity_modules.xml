@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/menu_bg"
+    android:fitsSystemWindows="true"
+    android:orientation="vertical">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="14dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif"
+                android:text="@string/modules_title"
+                android:textColor="#E8ECF4"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:text="@string/modules_sub"
+                android:textColor="#7E8CA0"
+                android:textSize="13sp" />
+
+            <!-- target game -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:letterSpacing="0.14"
+                android:text="@string/modules_section_target"
+                android:textColor="#7E8CA0"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/target_cstrike"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/btn_gold"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center"
+ android:text="@string/modules_target_cstrike"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/target_valve"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:layout_marginLeft="10dp"
+                    android:background="@drawable/btn_neutral"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center"
+                    android:text="@string/modules_target_valve"
+                    android:textColor="#AEB7C6"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
+
+            <!-- install -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:letterSpacing="0.14"
+                android:text="@string/modules_section_install"
+                android:textColor="#7E8CA0"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/card_dark"
+                android:orientation="vertical"
+                android:padding="13dp">
+
+                <Button
+                    android:id="@+id/install_amxx"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:background="@drawable/btn_gold"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center"
+                    android:text="@string/modules_install_amxx"
+                    android:textColor="#FFFFFF"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="11dp"
+                    android:layout_marginBottom="11dp"
+                    android:background="#2A303B" />
+
+                <Button
+                    android:id="@+id/install_metamod"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:background="@drawable/btn_neutral"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center"
+                    android:text="@string/modules_install_metamod"
+                    android:textColor="#E8ECF4"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="11dp"
+                    android:layout_marginBottom="11dp"
+                    android:background="#2A303B" />
+
+                <Button
+                    android:id="@+id/scan_dropin"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:background="@drawable/btn_neutral"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center"
+                    android:text="@string/modules_scan_dropin"
+                    android:textColor="#E8ECF4"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/dropin_path"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:lineSpacingExtra="2dp"
+                android:text="@string/modules_dropin_hint"
+                android:textColor="#4E5666"
+                android:textSize="10sp" />
+
+            <!-- installed -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:letterSpacing="0.14"
+                android:text="@string/modules_section_installed"
+                android:textColor="#7E8CA0"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/modules_empty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/modules_empty"
+                android:textColor="#4E5666"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:id="@+id/modules_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical" />
+
+            <!-- catalog (live from the cs16fresh-modules repo) -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:letterSpacing="0.14"
+                android:text="MODULE CATALOG"
+                android:textColor="#7E8CA0"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/catalog_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Loading catalog from GitHub..."
+                android:textColor="#4E5666"
+                android:textSize="11sp" />
+
+            <LinearLayout
+                android:id="@+id/catalog_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="@string/modules_restart_note"
+                android:textColor="#4E5666"
+                android:textSize="10sp" />
+
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- bottom tabs (shared with launcher/plugins/compiler) -->
+    <include layout="@layout/tab_bar" />
+
+</LinearLayout>

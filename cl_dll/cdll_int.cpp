@@ -587,6 +587,9 @@ extern "C" void DLLEXPORT F(void *pv)
 
 #include "cl_dll/IGameClientExports.h"
 
+// A7 build 110: logo/avatar file for one engine slot (hud/scoreboard.cpp)
+const char *CL_PlayerLogoPath( int slot );
+
 //-----------------------------------------------------------------------------
 // Purpose: Exports functions that are used by the gameUI for UI dialogs
 //-----------------------------------------------------------------------------
@@ -641,6 +644,102 @@ public:
 	{
 		return g_PlayerExtraInfo[gHUD.m_Scoreboard.m_iPlayerNum].teamnumber;
 	}
+
+	// build 90: player list window. Slot numbers are ENGINE player slots
+	// (1..maxclients), the same ones CHudScoreboard walks in
+	// GetAllPlayersInfo()/DrawPlayers() and CVoiceStatus uses for the
+	// voice ban manager (m_AudiblePlayers[iPlayer - 1]).
+	int GetMaxPlayers() override
+	{
+		int maxclients = gEngfuncs.GetMaxClients();
+
+		// the scoreboard only walks [1; MAX_PLAYERS), never expose more
+		if( maxclients > MAX_PLAYERS - 1 )
+			maxclients = MAX_PLAYERS - 1;
+		if( maxclients < 1 )
+			maxclients = 1;
+
+		return maxclients;
+	}
+
+	// build 90: name for the player list dialog. We ask the engine directly
+	// instead of reading g_PlayerInfoList[i].name - CHudScoreboard::DrawPlayers
+	// NULLs that field after every scoreboard draw pass ("set the name to be
+	// NULL, so this client won't get drawn again"), so it is not a stable
+	// source while the menu is open. Empty/invalid slot -> NULL (engine may
+	// also leave an empty string: both mean "no player here").
+	const char *GetPlayerName( int playerIndex ) override
+	{
+		static hud_player_info_t info; // scratch, refilled on every call
+
+		if( playerIndex < 1 || playerIndex > MAX_PLAYERS - 1 )
+			return NULL;
+
+		memset( &info, 0, sizeof( info ));
+		GetPlayerInfo( playerIndex, &info ); // cl_util.h -> gEngfuncs.pfnGetPlayerInfo
+
+		return info.name;
+	}
+
+	// build 109: menu scoreboard (rootcreep port) data feed. The menu walks
+	// 0-based rows with slot 0 always empty (engine slots are 1-based);
+	// team/extra are handed back as pointers into the client's own tables
+	// (stable for the life of the dll - mainui only reads them during the
+	// same frame). Player info goes through GetPlayerInfo into a per-slot
+	// scratch instead of g_PlayerInfoList: CHudScoreboard::DrawPlayers
+	// NULLs that array's names after every legacy draw pass (see above).
+	bool GetTeamInfo( int index, struct team_info_t **team ) override
+	{
+		if( !team || index < 0 || index > MAX_TEAMS )
+			return false;
+
+		*team = &g_TeamInfo[index];
+		return true;
+	}
+
+	bool GetPlayerExtraInfo( int index, struct hud_player_info_s **player, struct extra_player_info_t **extra, bool *isBot ) override
+	{
+		static hud_player_info_t playerScratch[MAX_PLAYERS + 1]; // per-slot, refilled each call
+
+		if( !player || !extra || index < 1 || index >= MAX_PLAYERS )
+			return false;
+
+		memset( &playerScratch[index], 0, sizeof( playerScratch[index] ));
+		GetPlayerInfo( index, &playerScratch[index] ); // engine fills name/ping/m_nSteamID
+
+		if( !playerScratch[index].name || !playerScratch[index].name[0] )
+			return false; // empty slot
+
+		*player = &playerScratch[index];
+		*extra  = &g_PlayerExtraInfo[index];
+
+		if( isBot )
+		{
+			// same userinfo probe the legacy HUD scoreboard uses for its
+			// "BOT" ping column (scoreboard.cpp)
+			const char *bot = gEngfuncs.PlayerInfo_ValueForKey( index, "*bot" );
+			*isBot = ( bot && bot[0] && strcmp( bot, "0" ) != 0 );
+		}
+
+		return true;
+	}
+
+	int GetPlayerSteamInfo( uint64_t steamid, void *steam ) override
+	{
+		if( !steam )
+			return SBRK_PLAYER_UNAVAILABLE;
+
+		// engine cache+HTTP broker (engine/client/cl_steam.c)
+		return gEngfuncs.pfnGetPlayerSteamInfo( steamid, (sbrk_player_info_t *)steam );
+	}
+
+	// build 110: non-Steam logo for the menu scoreboard - the legacy HUD
+	// scoreboard's file chain, shared via CL_PlayerLogoPath (scoreboard.cpp)
+	const char *GetPlayerLogoPath( int playerIndex ) override
+	{
+		return CL_PlayerLogoPath( playerIndex );
+	}
+
 private:
 	char mapname[64];
 };

@@ -43,6 +43,7 @@ extern cvar_t *cl_charset;
 
 int Con_UtfProcessChar( int in );
 int Con_UtfProcessCharForce( int in );
+void ConvertToFontCharset( const char *in, char *out, size_t outsize );
 
 class DrawUtils
 {
@@ -102,7 +103,14 @@ public:
 			return ret;
 		}
 		else
-			return gEngfuncs.pfnDrawConsoleString( x, y, (char *)string );
+		{
+			// decode into the font's charset first so utf-8 text
+			// (chat, names, center prints, status lines) renders
+			// correctly like the original CS
+			char converted[1024];
+			ConvertToFontCharset( string, converted, sizeof( converted ));
+			return gEngfuncs.pfnDrawConsoleString( x, y, converted );
+		}
 	}
 
 	static inline void SetConsoleTextColor( float r, float g, float b )
@@ -131,8 +139,11 @@ public:
 		{
 			int _width;
 			int _height;
+			char converted[1024];
 
-			gEngfuncs.pfnDrawConsoleStringLen( szIt, &_width, &_height );
+			// measure the same decoded string that will be drawn
+			ConvertToFontCharset( szIt, converted, sizeof( converted ));
+			gEngfuncs.pfnDrawConsoleStringLen( converted, &_width, &_height );
 			return _width;
 		}
 	}
@@ -142,7 +153,12 @@ public:
 		if ( gHUD.hud_textmode->value )
 			*height = 13, *width = HudStringLen( (char *)szIt );
 		else
-			gEngfuncs.pfnDrawConsoleStringLen( szIt, width, height );
+		{
+			// measure the same decoded string that will be drawn
+			char converted[1024];
+			ConvertToFontCharset( szIt, converted, sizeof( converted ));
+			gEngfuncs.pfnDrawConsoleStringLen( converted, width, height );
+		}
 	}
 
 	static inline int TextMessageDrawChar( int x, int y, int number, int r, int g, int b, float scale = 0.0f )

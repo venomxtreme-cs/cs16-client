@@ -160,6 +160,39 @@ extern void ClientDLL_VoiceStatus(int entindex, qboolean bTalking);
 extern void ClientDLL_DirectorMessage( int iSize, void *pbuf );
 extern void ClientDLL_ChatInputPosition( int *x, int *y );
 
+// A7 build 109: Steam player info API (rootcreep "engine: implement Steam
+// player info" port). Declared before APIProxy.h because cl_enginefunc_t
+// gains a trailing pfnGetPlayerSteamInfo member that uses this type.
+// Mirrors the engine tree's engine/cdll_int.h field-for-field; mainui keeps
+// its own copy in sdk_includes/common/ClientInfo.h with the same layout.
+// (stdint lives here because this header can be parsed standalone.)
+#include <stdint.h>
+
+typedef enum
+{
+	SBRK_PLAYER_UNREQUESTED,
+	SBRK_PLAYER_PENDING,
+	SBRK_PLAYER_READY,
+	SBRK_PLAYER_UNAVAILABLE,
+} sbrk_player_status_t;
+
+typedef struct
+{
+	uint64_t steamid;
+
+	char name[128];
+
+	byte relationship;
+	byte persona_state;
+	uint32_t game_app_id;
+	byte avatar_png[4096];
+	uint32_t avatar_png_size;
+	qboolean avatar_dirty;
+
+	sbrk_player_status_t status;
+	double request_time;
+} sbrk_player_info_t;
+
 //#include "server.h" // server_static_t define for apiproxy
 #include "APIProxy.h"
 

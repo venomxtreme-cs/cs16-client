@@ -72,7 +72,29 @@ int Con_UtfProcessCharForce( int in )
 	// TODO: get rid of global state where possible
 	static utfstate_t state = { 0 };
 
+	// a utf-8 sequence can only continue with a continuation byte. anything
+	// else means the previous lead byte was actually a classic single-byte
+	// character: drop the stale state and render this byte as-is, so a char
+	// like '<' after it is never swallowed or mangled
+	if( state.len )
+	{
+		if( in < 0x80 || in > 0xBF )
+		{
+			memset( &state, 0, sizeof( state ));
+			return in;
+		}
+	}
+	else if(( in >= 0x80 && in <= 0xBF ) || in >= 0xF8 )
+	{
+		// stray continuation byte or invalid lead byte:
+		// classic single-byte character, pass it through
+		return in;
+	}
+
 	uint32_t ch = Q_DecodeUTF8( &state, in );
+
+	if( !ch )
+		return 0; // waiting for continuation bytes
 
 	if( g_codepage == 1251 )
 		return Q_UnicodeToCP1251( ch );
@@ -91,12 +113,38 @@ int Con_UtfProcessChar( int in )
 	return Con_UtfProcessCharForce( in );
 }
 
+/*
+============================
+ConvertToFontCharset
+
+Decode a wire string (utf-8 or a classic single-byte charset) into the
+font's own charset, exactly like the original CS client does. Wellformed
+utf-8 sequences become one char in the current codepage, everything else
+passes through unchanged: nothing is ever dropped
+============================
+*/
+void ConvertToFontCharset( const char *in, char *out, size_t outsize )
+{
+	size_t o = 0;
+
+	Con_UtfProcessChar( 0 ); // reset utf state
+
+	for( const unsigned char *p = (const unsigned char *)in; *p && o + 1 < outsize; p++ )
+	{
+		int ch = Con_UtfProcessChar( *p );
+		if( ch )
+			out[o++] = (char)ch;
+	}
+
+	out[o] = 0;
+}
+
 int DrawUtils::DrawHudString( int xpos, int ypos, int iMaxX, const char *str, int r, int g, int b, float scale )
 {
 	int first_xpos = xpos;
 	char *szIt = (char *)str;
 
-	Con_UtfProcessChar( 0 );
+	Con_UtfProcessChar( 0 ); // reset utf state
 
 	// draw the string until we hit the null character or a newline character
 	for ( ; *szIt != 0 && *szIt != '\n'; szIt++ )
@@ -121,7 +169,7 @@ int DrawUtils::DrawHudString( int xpos, int ypos, int iMaxX, const char *str, in
 				continue;
 			case 'R':
 				xpos = iMaxX - gHUD.GetCharWidth( 'M' ) * 10;
-				++szIt;
+				continue;
 			}
 		}
 		else if( IsColorString( szIt ) )
@@ -136,14 +184,19 @@ int DrawUtils::DrawHudString( int xpos, int ypos, int iMaxX, const char *str, in
 			continue;
 		}
 
-		int uch = Con_UtfProcessChar( (unsigned char)*szIt );
+		// decode like the original CS: well-formed utf-8 sequences
+		// become one char in the font's own charset, stray bytes stay
+		// themselves, nothing is ever dropped
+		int ch = Con_UtfProcessChar( (unsigned char)*szIt );
+		if ( !ch )
+			continue; // continuation byte of a multi-byte sequence
 
-		int next = xpos + gHUD.GetCharWidth( uch ); // variable-width fonts look cool
+		int next = xpos + gHUD.GetCharWidth( ch ); // variable-width fonts look cool
 
 		if ( next > iMaxX && iMaxX > 0 )
 			return xpos;
 
-		xpos += TextMessageDrawChar( xpos, ypos, ( unsigned char )*szIt, r, g, b, scale );
+		xpos += TextMessageDrawChar( xpos, ypos, ch, r, g, b, scale );
 	}
 
 	return xpos;
@@ -154,6 +207,8 @@ int DrawUtils::DrawHudStringReverse( int xpos, int ypos, int iMinX, const char *
 {
 	int first_xpos = xpos;
 
+	Con_UtfProcessChar( 0 ); // reset utf state
+
 	struct CharEntry {
 		int start, end;
 		int uch;
@@ -162,7 +217,6 @@ int DrawUtils::DrawHudStringReverse( int xpos, int ypos, int iMinX, const char *
 	CUtlVector<CharEntry> chars;
 
 	int curR = r, curG = g, curB = b;
-	Con_UtfProcessChar( 0 );
 
 	// 1. Forward pass to identify characters and their correct colors
 	for ( int i = 0; szString[i] != '\0'; )
@@ -184,8 +238,7 @@ int DrawUtils::DrawHudStringReverse( int xpos, int ypos, int iMinX, const char *
 					if ( next < iMinX ) break;
 					xpos = next;
 					int drawX = xpos;
-					for ( int k = chars[j].start; k <= chars[j].end; k++ )
-						drawX += TextMessageDrawChar( drawX, ypos, ( unsigned char )szString[k], chars[j].r, chars[j].g, chars[j].b, scale );
+					drawX += TextMessageDrawChar( drawX, ypos, chars[j].uch, chars[j].r, chars[j].g, chars[j].b, scale );
 				}
 				chars.Purge();
 				// Draw the rest of the string forward from the left
@@ -206,32 +259,27 @@ int DrawUtils::DrawHudStringReverse( int xpos, int ypos, int iMinX, const char *
 			continue;
 		}
 
-		// Identify the character boundary
+		// decode like the draw path so measuring and drawing agree: one
+		// entry per visible char (a utf-8 sequence counts as one), stray
+		// bytes stay themselves, nothing is dropped
+		int ch = Con_UtfProcessChar( (unsigned char)szString[i] );
+		if ( !ch )
+		{
+			i++;
+			continue; // continuation byte of a multi-byte sequence
+		}
+
 		int start = i;
 		int next_i = i + 1;
-		if ( g_accept_utf8 )
-		{
-			while( szString[next_i] != '\0' && (unsigned char)szString[next_i] >= 0x80 && (unsigned char)szString[next_i] <= 0xBF )
-				next_i++;
-		}
 
-		// Decode the character to get its width-code
-		Con_UtfProcessChar( 0 );
-		int uch = 0;
-		for ( int j = start; j < next_i; j++ )
-			uch = Con_UtfProcessChar( (unsigned char)szString[j] );
-
-		if ( uch )
-		{
-			CharEntry entry;
-			entry.start = start;
-			entry.end = next_i - 1;
-			entry.uch = uch;
-			entry.r = curR;
-			entry.g = curG;
-			entry.b = curB;
-			chars.AddToTail( entry );
-		}
+		CharEntry entry;
+		entry.start = start;
+		entry.end = next_i - 1;
+		entry.uch = ch;
+		entry.r = curR;
+		entry.g = curG;
+		entry.b = curB;
+		chars.AddToTail( entry );
 		i = next_i;
 	}
 
@@ -246,10 +294,10 @@ int DrawUtils::DrawHudStringReverse( int xpos, int ypos, int iMinX, const char *
 
 		xpos = next;
 
-		// Draw all bytes of this character in forward order
+		// Draw the decoded char (a utf-8 sequence was already collapsed
+		// into one entry by the forward pass)
 		int drawX = xpos;
-		for ( int j = chars[i].start; j <= chars[i].end; j++ )
-			drawX += TextMessageDrawChar( drawX, ypos, ( unsigned char )szString[j], chars[i].r, chars[i].g, chars[i].b, scale );
+		drawX += TextMessageDrawChar( drawX, ypos, chars[i].uch, chars[i].r, chars[i].g, chars[i].b, scale );
 	}
 
 	return xpos;
@@ -404,7 +452,7 @@ int DrawUtils::HudStringLen( const char *szIt, float scale )
 {
 	int l;
 
-	Con_UtfProcessChar( 0 );
+	Con_UtfProcessChar( 0 ); // reset utf state
 
 	// count length until we hit the null character or a newline character
 	for ( l = 0; *szIt != 0 && *szIt != '\n'; szIt++ )
@@ -422,12 +470,13 @@ int DrawUtils::HudStringLen( const char *szIt, float scale )
 			continue;
 		}
 
-		int uch = Con_UtfProcessChar( (unsigned char)*szIt );
+		// decode like the draw path so measuring matches drawing:
+		// a utf-8 sequence is one char, stray bytes stay themselves
+		int ch = Con_UtfProcessChar( (unsigned char)*szIt );
+		if ( !ch )
+			continue; // continuation byte of a multi-byte sequence
 
-		if ( !uch )
-			continue;
-
-		l += gHUD.GetCharWidth( uch );
+		l += gHUD.GetCharWidth( ch );
 	}
 
 	return l;

@@ -3278,11 +3278,23 @@ LINK_HOOK_CLASS_CUSTOM_CHAIN(BOOL, CHalfLifeMultiplay, CSGameRules, FShouldSwitc
 
 BOOL EXT_FUNC CHalfLifeMultiplay::__API_HOOK(FShouldSwitchWeapon)(CBasePlayer *pPlayer, CBasePlayerItem *pWeapon)
 {
+	// drop plugin-written garbage item pointers before the CanHolster
+	// dispatch below (zbot round restart crashed exactly here)
+	if (pPlayer)
+		SanitizeItemPointers(pPlayer);
+
 	if (!pWeapon->CanDeploy())
 	{
 		// that weapon can't deploy anyway.
 		return FALSE;
 	}
+
+	// CanDeploy above can run plugin hook code that re-scribbles
+	// m_pActiveItem after the entry guard, so refresh the sanitise right
+	// before the CanHolster dispatch below (this round-restart path crashed
+	// exactly there on the re-loaded pointer).
+	if (pPlayer)
+		SanitizeItemPointers(pPlayer);
 
 	if (!pPlayer->m_pActiveItem)
 	{
@@ -3325,6 +3337,13 @@ LINK_HOOK_CLASS_CUSTOM_CHAIN(BOOL, CHalfLifeMultiplay, CSGameRules, GetNextBestW
 
 BOOL EXT_FUNC CHalfLifeMultiplay::__API_HOOK(GetNextBestWeapon)(CBasePlayer *pPlayer, CBasePlayerItem *pCurrentWeapon)
 {
+	// drop plugin-written garbage item pointers before the CanHolster
+	// dispatch below; a garbage current weapon means no switch is possible
+	if (pPlayer)
+		SanitizeItemPointers(pPlayer);
+	if (!ItemPointerReadable(pCurrentWeapon))
+		return FALSE;
+
 	CBasePlayerItem *pCheck;
 	CBasePlayerItem *pBest; // this will be used in the event that we don't find a weapon in the same category.
 	int iBestWeight;

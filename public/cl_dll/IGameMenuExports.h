@@ -44,7 +44,11 @@ public:
 
 	virtual int   DrawCharacter( HFont font, int ch, int x, int y, int charH, const unsigned int color, bool forceAdditive = false ) = 0;
 
-	virtual void  SetupScoreboard( int xstart, int xend, int ystart, int yend, unsigned int color, bool drawStroke ) = 0;
+	// A7 build 109: rootcreep menu scoreboard - the old 7-arg positioning
+	// version is gone; mainui's udll_int.cpp overrides the no-arg pair
+	// (Setup -> UI_VidInitScoreboard, Draw -> UI_DrawScoreboard). Nobody
+	// called the 7-arg form. append-only: keep both copies identical.
+	virtual void  SetupScoreboard( void ) = 0;
 	virtual void  DrawScoreboard( void ) = 0;
 
 	virtual void  DrawSpectatorMenu( void ) = 0;

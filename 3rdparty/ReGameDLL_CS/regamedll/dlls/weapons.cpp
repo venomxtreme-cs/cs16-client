@@ -599,7 +599,9 @@ CBaseEntity *CBasePlayerItem::Respawn()
 	}
 	else
 	{
-		ALERT(at_console, "Respawn failed to create %s!\n", STRING(pev->classname));
+		// game log only: fired for virtual classnames of custom-weapon kits
+		// whose respawn copy cannot be created by the engine
+		ALERT(at_logged, "Respawn failed to create %s!\n", STRING(pev->classname));
 	}
 
 	return pNewWeapon;

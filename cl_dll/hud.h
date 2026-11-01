@@ -181,6 +181,7 @@ public:
 	static int GetWeaponAccuracyFlags( int weaponId );
 	void DrawCrosshairSection( int _x0, int _y0, int _x1, int _y1 );
 	void DrawCrosshairPadding( int _pad, int _x0, int _y0, int _x1, int _y1 );
+	void DrawCrosshairCircle( int center_x, int center_y, int radius, int thickness, int pad, bool outline );
 
 	int DrawWList(float flTime);
 	CHudMsgFunc(CurWeapon);
@@ -256,6 +257,7 @@ private:
 
 	cvar_t *xhair_color;
 	cvar_t *xhair_additive;
+	cvar_t *cl_crosshair_type;
 
 	cvar_t *cl_crosshair_color;
 	cvar_t *cl_crosshair_translucent;
@@ -330,7 +332,8 @@ private:
 //
 //-----------------------------------------------------
 //
-//  MOTD in cs16 must render HTML, so it disabled
+//  MOTD panel. Server-sent HTML is converted to plain
+//  text (MOTD_HtmlToText) before drawing.
 //
 
 class CHudMOTD : public CHudBase
@@ -354,7 +357,6 @@ protected:
 	
 	int m_iLines;
 	int m_iMaxLength;
-	bool ignoreThisMotd;
 };
 
 
@@ -401,6 +403,24 @@ private:
 	cvar_t *cl_showpacketloss;
 	cvar_t *cl_showplayerversion;
 	cvar_t *cl_show_scoreboard_on_death;
+
+	// A7 round 100 (user: "logo ... just import image or connect from steam
+	// not choosing"): the scoreboard logo resolves AUTOMATICALLY, in order -
+	//   imported image (avatar_custom) -> my Steam photo (avatar_self /
+	//   media/avatars/av_<account>) -> the legacy cl_playerlogo path, which
+	// the menu fills from logos/ when there is nothing else. No picker.
+	// The cache and the probe live with the draw code in scoreboard.cpp.
+	cvar_t *cl_playerlogo;
+
+	// A7 user request: Steam friends - the friends WebView screen saves
+	// friends/names.txt (badges) and friends/avatars.txt (name -> image),
+	// rows matching one of those names get their photo
+	enum { MAX_SB_FRIENDS = 64, MAX_FRIEND_NAME = 32 };
+	char m_szFriends[MAX_SB_FRIENDS][MAX_FRIEND_NAME];
+	int m_iNumFriends;
+
+	void LoadFriendList();
+	bool IsFriend( const char *name ) const;
 };
 
 //
@@ -640,6 +660,7 @@ struct message_parms_t
 	int length;
 	int r, g, b;
 	int text;
+	int textWidth; // decoded char width (utf-8 sequences count as one char)
 	int fadeBlend;
 	float charTime;
 	float fadeTime;
@@ -1002,7 +1023,9 @@ public:
 				return i;
 		}
 
-		gEngfuncs.Con_Printf( "GetSpriteIndex: %s sprite not found\n", SpriteName );
+		// quiet miss: the stock code printed "sprite not found" here on
+		// every lookup of a name the hud.txt list doesn't carry - the
+		// caller just gets -1 and skips the sprite
 		return -1; // invalid sprite
 	}
 
@@ -1036,6 +1059,7 @@ public:
 	int		m_iKeyBits;
 	int		m_iHideHUDDisplay;
 	int		m_iFOV;
+	float	m_flCurrentFOV;
 	int		m_Teamplay;
 	cvar_t *m_pCvarDraw;
 	cvar_t *fastsprites;
@@ -1150,6 +1174,8 @@ private:
 
 	cvar_t *hud_draw;
 	cvar_t *default_fov;
+	cvar_t *fov_angle;
+	cvar_t *fov_lerp;
 	cvar_t *zoom_sens_ratio;
 };
 

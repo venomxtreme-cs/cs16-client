@@ -19,6 +19,7 @@
 //
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <ctype.h>
 #include "hud.h"
 #include "cl_util.h"
@@ -86,6 +87,31 @@ static struct Column
 	}
 } g_Columns[TOTAL_COLUMNS];
 
+// Y positions - declared up here so the logo column below can use the
+// row pitch for its plate size
+// build 101 gave the plate its own row space ("logo looks too small"),
+// build 102 took it to 24 px ("still small") and build 103 goes again
+// with a PC scoreboard reference picture in hand: the plate holds ~90% of
+// the row height, which is what the alphas look like there - a 32 px
+// picture in a 36 px row (stock was 13 in 15). Every row draw below
+// derives from ROW_GAP and both list loops stop at yend, so taller rows
+// only mean fewer visible lines on short screens - never overlap.
+#define ROW_GAP  36
+
+// the logo plate itself: a square inside the row, picture + a thin frame
+// like the PC board's player plates (was 17 in 19 (102), 13 in 15 stock)
+#define LOGO_SIZE  32
+#define LOGO_BOX_X  2   // plate's left margin from the frame edge
+// total room the plate takes out of the name column: margin + picture +
+// a 6px gap, so the names line up with the header text
+#define LOGO_GUTTER ( LOGO_BOX_X + LOGO_SIZE + 6 )
+
+// the logo chain further down is file-static, so the two values it needs
+// are cached here instead of being reached through the class (declared
+// before Init, which publishes cl_playerlogo into them)
+static cvar_t *s_cl_playerlogo = NULL;
+static int s_localSlot = 0;
+
 //#include "vgui_TeamFortressViewport.h"
 
 int CHudScoreboard :: Init( void )
@@ -108,7 +134,567 @@ int CHudScoreboard :: Init( void )
 	cl_showplayerversion = CVAR_CREATE( "cl_showplayerversion", "0", 0 );
 	cl_show_scoreboard_on_death = CVAR_CREATE( "cl_show_scoreboard_on_death", "0", FCVAR_ARCHIVE );
 
+	// A7 round 100: the menu no longer PICKS the scoreboard logo - the
+	// chain above resolves it. cl_playerlogo stays registered (and
+	// FCVAR_ARCHIVE) as the logos/ fallback the menu fills in and as the
+	// stored value of any older pick.
+	cl_playerlogo = CVAR_CREATE( "cl_playerlogo", "", FCVAR_ARCHIVE );
+	s_cl_playerlogo = cl_playerlogo;
+	m_iNumFriends = 0;
+
 	return 1;
+}
+
+// ===========================================================================
+// A7 round 100 - automatic scoreboard logos
+// (user: "logo ... just import image or connect from steam, not choosing")
+//
+// Every picture is a file on disk and the draw only reads files:
+//
+//   my row    media/avatars/avatar_custom.png   "Import image..." (Options)
+//             media/avatars/avatar_self.png     my Steam photo, saved by the
+//                                                Steam friends screen
+//             media/avatars/av_<account>.png    my *sid sent by reunion/
+//                                                dproto/goldsource servers
+//             cl_playerlogo                     the menu's logos/ fallback
+//
+//   any row   friends/avatars.txt               a Steam friend, name -> file
+//             media/avatars/av_<account>.png    that player's *sid photo
+//
+// A picture that isn't there YET is not remembered as a failure the way the
+// old logo path did (that is why it vanished on some servers): a miss is
+// re-probed every AVATAR_PROBE_TIME seconds while the scoreboard is drawn,
+// so a fetch that lands mid-server, an image imported mid-game and a
+// vid_restart all heal on their own. The path is drawn on every server, xash
+// and goldsource alike - nothing about it is server-side.
+// ===========================================================================
+#define AVATAR_PROBE_TIME 2.0f
+#define MAX_SB_AVAMAP     48     // name -> picture rows in friends/avatars.txt
+#define MAX_AVA_PATH      128
+
+static struct
+{
+	char path[MAX_AVA_PATH];
+	int  tex;      // 0 = not tried yet, -1 = no picture on disk, >0 = texture
+	float next;    // gHUD.m_flTime when this entry may be probed again
+} s_avas[64];
+
+static struct
+{
+	char path[MAX_AVA_PATH];   // resolved for this slot ("" = nothing known)
+	float next;                // next re-resolve time while nothing is found
+} s_slotPath[MAX_PLAYERS + 1];
+
+// my Steam account number, read once from the friends screen's
+// accounts file (steamid64 minus the Steam universe base)
+static unsigned long long s_myAccount = 0;
+
+static bool SB_FileExists( const char *path )
+{
+	int len = 0;
+	byte *buf = (byte *)gEngfuncs.COM_LoadFile((char *)path, 5, &len );
+
+	if( !buf )
+		return false;
+
+	gEngfuncs.COM_FreeFile( buf );
+	return true;
+}
+
+// one texture per path, shared by every row that wants the same picture
+static int SB_AvatarTex( const char *path, float flTime )
+{
+	int i, freeSlot = -1;
+
+	if( !path[0] )
+		return 0;
+
+	for( i = 0; i < (int)( sizeof( s_avas ) / sizeof( s_avas[0] )); i++ )
+	{
+		if( s_avas[i].path[0] && !stricmp( s_avas[i].path, path ))
+			break;
+		if( freeSlot < 0 && !s_avas[i].path[0] )
+			freeSlot = i;
+	}
+
+	if( i == ( int )( sizeof( s_avas ) / sizeof( s_avas[0] )))
+	{
+		// free slot for a path we have never seen: remember it right
+		// away, so a MISS is keyed by its path the same way a hit is
+		// (the old code only stored the path on success, which is why
+		// one failed load stuck for the whole session)
+		if( freeSlot < 0 )
+			return 0; // every pool entry is in use
+
+		i = freeSlot;
+		s_avas[i].tex = 0;
+		s_avas[i].next = 0;
+		strncpy( s_avas[i].path, path, sizeof( s_avas[i].path ) - 1 );
+		s_avas[i].path[sizeof( s_avas[i].path ) - 1] = 0;
+	}
+
+	if( s_avas[i].tex > 0 )
+		return s_avas[i].tex;
+
+	// -1 = tried and nothing is on disk: re-probe after the delay, the
+	// picture may still be on its way over the network
+	if( flTime < s_avas[i].next )
+		return 0;
+
+	s_avas[i].next = flTime + AVATAR_PROBE_TIME;
+
+	if( !SB_FileExists( path ))
+	{
+		s_avas[i].tex = -1;
+		return 0;
+	}
+
+	s_avas[i].tex = gRenderAPI.GL_LoadTexture((char *)path, NULL, 0,
+		TF_NEAREST | TF_NOMIPMAP | TF_CLAMP );
+
+	if( s_avas[i].tex <= 0 )
+	{
+		s_avas[i].tex = -1;
+		return 0;
+	}
+
+	return s_avas[i].tex;
+}
+
+// "STEAM_0:1:905" / "0:0:905" / "[U:1:905]" / steamid64 -> the account
+// number reunion/dproto and the goldsource steam emulators put in *sid
+static bool SB_SidAccount( const char *sid, unsigned long long *account )
+{
+	if( !sid || !sid[0] )
+		return false;
+
+	if( !strnicmp( sid, "STEAM_", 6 ))
+	{
+		sid += 6;
+
+		const char *last = strrchr( sid, ':' );
+		if( !last || last == sid )
+			return false;
+
+		int z = atoi( last + 1 );
+		if( z < 0 )
+			return false;
+
+		const char *num = last;
+		while( num > sid && isdigit((unsigned char)num[-1] ))
+			num--;
+
+		long y = atol( num );   // the auth bit is the last digit of the pair
+		if( y < 0 )
+			return false;
+
+		*account = (unsigned long long)z * 2 + ( y & 1 );
+		return *account != 0;
+	}
+	else if( sid[0] == '[' )
+	{
+		int y = 0;
+
+		if( sscanf( sid, "[U:1:%d]", &y ) != 1 || y < 0 )
+			return false;
+
+		*account = (unsigned long long)y;
+		return *account != 0;
+	}
+	else if( isdigit((unsigned char)sid[0] ))
+	{
+		unsigned long long v = strtoull( sid, NULL, 10 );
+
+		if( v > 0xFFFFFFFFULL )
+		{
+			if( v <= 76561197960265728ULL )
+				return false;
+			v -= 76561197960265728ULL;
+		}
+
+		if( v == 0 || v > 0xFFFFFFFFULL )
+			return false;
+
+		*account = v;
+		return true;
+	}
+
+	return false;
+}
+
+// <gamedir>/friends/avatars.txt, written by the Steam friends screen:
+// "player name<TAB>path" per line. Used for rows I recognise by name.
+struct sb_ava_map_t
+{
+	char name[32];      // same length as CHudScoreboard::MAX_FRIEND_NAME
+	char path[MAX_AVA_PATH];
+};
+
+static sb_ava_map_t s_avaMap[MAX_SB_AVAMAP];
+static int s_iNumAvaMap = 0;
+
+static const char *SB_AvatarForName( const char *name )
+{
+	int i;
+
+	if( !name || !name[0] )
+		return NULL;
+
+	for( i = 0; i < s_iNumAvaMap; i++ )
+	{
+		if( !stricmp( name, s_avaMap[i].name ))
+			return s_avaMap[i].path;
+	}
+
+	return NULL;
+}
+
+// the Steam friends screen saves my photo here when I sign in; used as
+// my logo when the server tells me no *sid of my own
+static void SB_LoadMyAccount( void )
+{
+	s_myAccount = 0;
+
+	int len = 0;
+	char *buf = (char *)gEngfuncs.COM_LoadFile((char *)"friends/steamid.txt", 5, &len );
+
+	if( buf )
+	{
+		unsigned long long v = strtoull( buf, NULL, 10 );
+
+		if( v > 76561197960265728ULL && v <= 76561197960265728ULL + 0xFFFFFFFFULL )
+			s_myAccount = v - 76561197960265728ULL;
+
+		gEngfuncs.COM_FreeFile( buf );
+	}
+}
+
+static void SB_LoadAvatarMap( void )
+{
+	char line[256];
+	char *p, *buf;
+	int len = 0;
+	int row = 0;
+
+	s_iNumAvaMap = 0;
+
+	buf = (char *)gEngfuncs.COM_LoadFile((char *)"friends/avatars.txt", 5, &len );
+	if( !buf )
+		return;
+
+	p = buf;
+
+	while( *p && row < MAX_SB_AVAMAP )
+	{
+		char *eol = strchr( p, '\n' );
+		int n = eol ? (int)( eol - p ) : (int)strlen( p );
+
+		if( (int)sizeof( line ) - 1 < n )
+			n = sizeof( line ) - 1;
+
+		memcpy( line, p, n );
+		line[n] = 0;
+
+		// "name<TAB>path" - the tab is the only separator, Steam names
+		// may contain anything else
+		char *tab = strchr( line, '\t' );
+		if( tab )
+		{
+			*tab = 0;
+
+			char *end = line + strlen( line );
+			while( end > line && ( end[-1] == '\r' || end[-1] == ' ' || end[-1] == '\t' ))
+				*--end = 0;
+
+			char *path = tab + 1;
+			while( *path == ' ' || *path == '\t' )
+				path++;
+
+			char *pend = path + strlen( path );
+			while( pend > path && ( pend[-1] == '\r' || pend[-1] == ' ' || pend[-1] == '\t' ))
+				*--pend = 0;
+
+			if( line[0] && *path )
+			{
+				strncpy( s_avaMap[row].name, line, sizeof( s_avaMap[row].name ) - 1 );
+				s_avaMap[row].name[sizeof( s_avaMap[row].name ) - 1] = 0;
+				strncpy( s_avaMap[row].path, path, sizeof( s_avaMap[row].path ) - 1 );
+				s_avaMap[row].path[sizeof( s_avaMap[row].path ) - 1] = 0;
+				row++;
+			}
+		}
+
+		if( !eol )
+			break;
+		p = eol + 1;
+	}
+
+	s_iNumAvaMap = row;
+	gEngfuncs.COM_FreeFile( buf );
+}
+
+// first path in the list that is actually on disk
+static const char *SB_FirstExisting( const char *const *list, int count )
+{
+	for( int i = 0; i < count; i++ )
+	{
+		if( list[i] && list[i][0] && SB_FileExists( list[i] ))
+			return list[i];
+	}
+
+	return NULL;
+}
+
+// textures don't survive a vid restart and the files may have changed
+static void SB_AvatarsReset( void );
+
+// the picture for one scoreboard slot, resolved as rarely as possible:
+// a settled row stays put, an unsettled one is re-evaluated so a file
+// that lands while I am in the server still shows up
+static const char *SB_SlotPath( int slot, float flTime )
+{
+	// A7 build 111: a freshly picked/imported logo reached disk - the
+	// engine bumped @cl_avatargen (and freed the ref texture), so drop
+	// every cached logo texture + path once per bump: THIS scoreboard and
+	// the menu (CL_PlayerLogoPath resolves through this very function)
+	// then reload the new picture live, no rejoin needed.
+	static int s_avatargenSeen = -1;
+	cvar_t *avatargen = gEngfuncs.pfnGetCvarPointer( "@cl_avatargen" );
+	int gen = avatargen ? (int)avatargen->value : 0;
+
+	if( gen != s_avatargenSeen )
+	{
+		s_avatargenSeen = gen;
+		SB_AvatarsReset();
+	}
+
+	char sid[128] = "";
+	char pngPath[MAX_AVA_PATH];
+	char tgaPath[MAX_AVA_PATH];
+	unsigned long long account = 0;
+	const char *cands[4];
+	int ncands = 0;
+	const char *picked = NULL;
+
+	if( slot < 0 || slot > MAX_PLAYERS )
+		return NULL;
+
+	hud_player_info_t *pl_info = &g_PlayerInfoList[slot];
+	bool mine = pl_info->thisplayer || ( slot == s_localSlot );
+
+	if( s_slotPath[slot].path[0] )
+	{
+		// one row resolves once and stays: only my own row re-reads, so
+		// an image imported from Options shows without reconnecting
+		if( !mine || flTime < s_slotPath[slot].next )
+			return s_slotPath[slot].path;
+
+		s_slotPath[slot].path[0] = 0;
+	}
+	else if( s_slotPath[slot].next && flTime < s_slotPath[slot].next )
+	{
+		// checked a moment ago and there was nothing: don't stat twice a frame
+		return NULL;
+	}
+
+	s_slotPath[slot].next = 0;
+
+	strncpy( sid, gEngfuncs.PlayerInfo_ValueForKey( slot, "*sid" ), sizeof( sid ) - 1 );
+	sid[sizeof( sid ) - 1] = 0;
+
+	pngPath[0] = tgaPath[0] = 0;
+
+	if( SB_SidAccount( sid, &account ))
+	{
+		snprintf( pngPath, sizeof( pngPath ), "media/avatars/av_%llu.png", account );
+		snprintf( tgaPath, sizeof( tgaPath ), "media/avatars/av_%llu.tga", account );
+	}
+
+	if( mine )
+	{
+		cands[ncands++] = "media/avatars/avatar_custom.png";   // "Import image..."
+		cands[ncands++] = "media/avatars/avatar_self.png";     // my Steam photo
+
+		if( pngPath[0] )
+			cands[ncands++] = pngPath;
+		else if( s_myAccount )
+		{
+			static char minePath[MAX_AVA_PATH];
+			snprintf( minePath, sizeof( minePath ), "media/avatars/av_%llu.png", s_myAccount );
+			cands[ncands++] = minePath;
+		}
+
+		picked = SB_FirstExisting( cands, ncands );
+
+		// last resort: the menu's logos/ pick (kept as a plain path)
+		if( !picked && s_cl_playerlogo && s_cl_playerlogo->string[0] )
+		{
+			const char *legacy[1];
+			legacy[0] = s_cl_playerlogo->string;
+			picked = SB_FirstExisting( legacy, 1 );
+		}
+	}
+	else
+	{
+		const char *byName = SB_AvatarForName( pl_info->name );
+
+		if( byName && byName[0] )
+		{
+			cands[0] = byName;
+			picked = SB_FirstExisting( cands, 1 );
+		}
+
+		if( !picked )
+		{
+			ncands = 0;
+			cands[ncands++] = pngPath;
+			cands[ncands++] = tgaPath;
+			picked = SB_FirstExisting( cands, ncands );
+		}
+	}
+
+	s_slotPath[slot].path[0] = 0;
+
+	if( picked )
+	{
+		strncpy( s_slotPath[slot].path, picked, sizeof( s_slotPath[slot].path ) - 1 );
+		s_slotPath[slot].path[sizeof( s_slotPath[slot].path ) - 1] = 0;
+	}
+
+	if( picked && !mine )
+	{
+		// a settled other row: no more file checks until a vid restart
+		s_slotPath[slot].next = 0;
+	}
+	else
+	{
+		// nothing YET (any row) or "my picture may have been replaced"
+		// (my row): re-check a couple of times a second instead of
+		// giving up
+		s_slotPath[slot].next = flTime + AVATAR_PROBE_TIME;
+	}
+
+	return s_slotPath[slot].path[0] ? s_slotPath[slot].path : NULL;
+}
+
+// A7 build 110: exported for the MENU scoreboard (cl_dll/cdll_int.cpp ->
+// IGameClientExports::GetPlayerLogoPath) - the logo/avatar FILE for one
+// engine slot, gamedir-relative, or NULL. One wrapper over SB_SlotPath so
+// the menu and this legacy HUD scoreboard share the exact same resolution
+// chain (friends/avatars.txt, media/avatars/av_<account>, avatar_custom/
+// avatar_self, cl_playerlogo).
+const char *CL_PlayerLogoPath( int slot )
+{
+	if( slot < 1 || slot >= MAX_PLAYERS )
+		return NULL;
+
+	return SB_SlotPath( slot, gHUD.m_flTime );
+}
+
+// the texture for one slot, or 0 when that slot has no picture
+static int SB_SlotAvatar( int slot, float flTime )
+{
+	const char *path = SB_SlotPath( slot, flTime );
+
+	return path ? SB_AvatarTex( path, flTime ) : 0;
+}
+
+// draws the picture plate at (x, ypos) and returns where a name may start
+static int SB_DrawAvatar( int tex, int x, int ypos )
+{
+	const int sz = LOGO_SIZE;
+	const float scale = gHUD.m_flScale;
+
+	// build 101: the plate the PC scoreboard gives every player picture -
+	// dark socket first, the image one pixel in, a thin frame around it,
+	// so a logo reads as a card instead of a stamp lost on the row
+	FillRGBA( x, ypos, sz, sz, 6, 10, 14, 240 );
+	FillRGBA( x, ypos, sz, 1, 255, 140, 0, 120 );
+	FillRGBA( x, ypos + sz - 1, sz, 1, 255, 140, 0, 120 );
+	FillRGBA( x, ypos, 1, sz, 255, 140, 0, 120 );
+	FillRGBA( x + sz - 1, ypos, 1, sz, 255, 140, 0, 120 );
+
+	gRenderAPI.GL_SelectTexture( 0 );
+	gRenderAPI.GL_Bind( 0, tex );
+	gEngfuncs.pTriAPI->RenderMode( kRenderTransAlpha );
+	gEngfuncs.pTriAPI->Color4f( 1.0f, 1.0f, 1.0f, 1.0f );
+
+	DrawUtils::Draw2DQuad(( x + 1 ) * scale, ( ypos + 1 ) * scale,
+		( x + sz - 1 ) * scale, ( ypos + sz - 1 ) * scale );
+
+	gEngfuncs.pTriAPI->RenderMode( kRenderNormal );
+	return x + sz + 4;
+}
+
+// textures don't survive a vid restart and the files may have changed
+static void SB_AvatarsReset( void )
+{
+	for( int i = 0; i < (int)( sizeof( s_avas ) / sizeof( s_avas[0] )); i++ )
+	{
+		if( s_avas[i].tex > 0 )
+			gRenderAPI.GL_FreeTexture( s_avas[i].tex );
+		s_avas[i].tex = 0;
+		s_avas[i].path[0] = 0;
+		s_avas[i].next = 0;
+	}
+
+	memset( s_slotPath, 0, sizeof( s_slotPath ));
+
+	SB_LoadMyAccount();
+	SB_LoadAvatarMap();
+}
+
+// A7 user request: the Steam friends the WebView screen saved
+// (<gamedir>/friends/names.txt, one UTF-8 name per line)
+void CHudScoreboard::LoadFriendList()
+{
+	int len = 0;
+	m_iNumFriends = 0;
+
+	char *pFileBuf = (char *)gEngfuncs.COM_LoadFile( (char *)"friends/names.txt", 5, &len );
+	if( !pFileBuf )
+		return;
+
+	const char *p = pFileBuf;
+
+	while( *p && m_iNumFriends < MAX_SB_FRIENDS )
+	{
+		const char *eol = strchr( p, '\n' );
+		int n = eol ? (int)( eol - p ) : (int)strlen( p );
+
+		while( n > 0 && ( p[n - 1] == '\r' || p[n - 1] == ' ' || p[n - 1] == '\t' ))
+			n--;
+
+		if( n > 0 )
+		{
+			if( n >= MAX_FRIEND_NAME )
+				n = MAX_FRIEND_NAME - 1;
+
+			memcpy( m_szFriends[m_iNumFriends], p, n );
+			m_szFriends[m_iNumFriends][n] = 0;
+			m_iNumFriends++;
+		}
+
+		if( !eol )
+			break;
+		p = eol + 1;
+	}
+
+	gEngfuncs.COM_FreeFile( pFileBuf );
+}
+
+bool CHudScoreboard::IsFriend( const char *name ) const
+{
+	if( !name || !*name )
+		return false;
+
+	for( int i = 0; i < m_iNumFriends; i++ )
+	{
+		if( !stricmp( name, m_szFriends[i] ))
+			return true;
+	}
+
+	return false;
 }
 
 
@@ -119,6 +705,14 @@ int CHudScoreboard :: VidInit( void )
 	ystart = 100;
 	yend = ScreenHeight - ystart;
 	m_bForceDraw = false;
+
+	// renderer textures don't survive a vid restart, and the friends
+	// screen may have written new lists while we were loading - drop the
+	// whole picture cache and read both lists again
+	SB_AvatarsReset();
+
+	// the friends screen may have written a new list while we were loading
+	LoadFriendList();
 
 	// Load sprites here
 	return 1;
@@ -144,6 +738,11 @@ void CHudScoreboard :: InitHUDData( void )
 		g_PlayerExtraInfo[i].sb_account = -1;
 	}
 
+	// the logo chain needs to know my own slot without reaching into the
+	// class from the file-static helpers
+	s_localSlot = m_iPlayerNum;
+	SB_AvatarsReset();
+
 	m_iFlags &= ~HUD_DRAW;  // starts out inactive
 
 	m_iFlags |= HUD_INTERMISSION; // is always drawn during an intermission
@@ -163,13 +762,23 @@ bool CHudScoreboard :: ShouldDrawScoreboard() const
 	return false;
 }
 
-// Y positions
-#define ROW_GAP  15
-
 int CHudScoreboard :: Draw( float flTime )
 {
 	if( !ShouldDrawScoreboard( ))
 		return 1;
+
+	// A7 build 109: route the TAB scoreboard to the menu-side scoreboard
+	// (rootcreep "menus: Scoreboard implementation" port). DrawScoreboard()
+	// -> udll_int.cpp -> UI_DrawScoreboard() which lazily Init()+VidInit()s
+	// the CMenuScoreboard on first use and draws it raw for this frame -
+	// no menu activation, no input capture: release TAB and it simply does
+	// not draw next frame. The legacy HUD panel below stays as the fallback
+	// when the menu interface is unavailable (old touch menus).
+	if( g_pMenu )
+	{
+		g_pMenu->DrawScoreboard();
+		return 1;
+	}
 
 	if( !m_bForceDraw )
 	{
@@ -177,10 +786,15 @@ int CHudScoreboard :: Draw( float flTime )
 		xend       = ScreenWidth - xstart;
 		ystart     = 90;
 		yend       = ScreenHeight - ystart;
-		m_colors.r = 0;
-		m_colors.g = 0;
-		m_colors.b = 0;
-		m_colors.a = 153;
+
+		// A7 round 100 - retail CS 1.6 colour set: the panel is the
+		// GoldSource blue-black plate (never flat black), a touch more
+		// opaque than the stock 153 so the rows read over a bright map,
+		// and the drawn frame stays the classic orange.
+		m_colors.r = 10;
+		m_colors.g = 14;
+		m_colors.b = 18;
+		m_colors.a = 170;
 		m_bDrawStroke = true;
 	}
 
@@ -221,13 +835,23 @@ int CHudScoreboard :: DrawScoreboard( float fTime )
 	g_Columns[COL_ATTRIB] = Column( g_Columns[COL_HP].end - 10 );
 	g_Columns[COL_ATTRIB].end = g_Columns[COL_ATTRIB].start - DrawUtils::HudStringLen( "#Cstrike_DEFUSE_KIT" );
 
-	g_Columns[COL_NAME] = Column( xstart + 15, nullptr, false );
+	// A7 round 100 / build 101: names start after the logo gutter - one
+	// LOGO_GUTTER wide (2 + 32 + 6 = 40 in build 103; 2 + 24 + 6 in 102,
+	// 2 + 17 + 6 in 101, the old 19/13 pair before), so the plate reads
+	// as a picture and the name lines up with the header text
+	g_Columns[COL_NAME] = Column( xstart + LOGO_GUTTER, nullptr, false );
 	g_Columns[COL_NAME].end = g_Columns[COL_ATTRIB].end - 10;
 
 	// print the heading line
 
 	DrawUtils::DrawRectangle(xstart, ystart, xend - xstart, yend - ystart,
 		m_colors.r, m_colors.g, m_colors.b, m_colors.a, m_bDrawStroke);
+
+	// A7 round 100: the retail title row sits on a slightly lighter plate
+	// inside the frame - it separates the header from the list the way the
+	// original does without adding a line of its own
+	FillRGBABlend( xstart + 2, ystart + 2, xend - xstart - 4, ROW_GAP + 7,
+		255, 255, 255, 12 );
 
 	int ypos = ystart + (list_slot * ROW_GAP) + 5;
 
@@ -473,10 +1097,40 @@ int CHudScoreboard :: DrawPlayers( float list_slot, int nameoffset, const char *
 
 		if(pl_info->thisplayer) // hey, it's me!
 		{
-			FillRGBABlend( xstart, ypos, xend - xstart, ROW_GAP, 255, 255, 255, 15 );
+			// A7 round 100: a firmer own-row band, so my line still reads
+			// at a glance with a logo plate on it
+			FillRGBABlend( xstart, ypos, xend - xstart, ROW_GAP, 255, 255, 255, 26 );
 		}
 
 		DrawUtils::DrawHudString( g_Columns[COL_NAME].start + nameoffset, ypos, g_Columns[COL_NAME].start + 350, pl_info->name, r, g, b );
+
+		// A7 round 100: the logo column. My own row gets the imported
+		// image / my Steam photo, any other row gets a Steam friend's
+		// photo (matched by name) or that player's *sid photo. It draws
+		// for whichever row has a picture, on xash AND goldsource servers
+		// alike - nothing server-side feeds it, and a picture that is not
+		// on disk YET is retried instead of written off (that miss was
+		// why some servers showed no logo at all).
+		const int logoTex = SB_SlotAvatar( best_player, gHUD.m_flTime );
+
+		if( logoTex > 0 )
+		{
+			// build 103: the 32 px plate sits centred in its 36 px row
+			// so it reads like the PC board's player pictures
+			SB_DrawAvatar( logoTex, g_Columns[COL_NAME].start + nameoffset - LOGO_GUTTER,
+				ypos + ( ROW_GAP - LOGO_SIZE ) / 2 );
+		}
+		else if( IsFriend( pl_info->name ))
+		{
+			const int bx = g_Columns[COL_NAME].start + nameoffset
+				+ DrawUtils::HudStringLen( pl_info->name ) + 6;
+
+			if( bx + 11 <= g_Columns[COL_NAME].start + 350 )
+			{
+				FillRGBA( bx, ypos + 2, 11, 11, 102, 192, 244, 255 );
+				FillRGBA( bx + 2, ypos + 4, 7, 7, 8, 20, 34, 255 );
+			}
+		}
 
 		if( cl_showplayerversion->value == 0.0f )
 		{

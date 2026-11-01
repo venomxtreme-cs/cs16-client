@@ -94,6 +94,8 @@
 #define MENU_RADIOC 37
 #define MENU_RADIOSELECTOR 38
 #define MENU_BUY_CSDM 39
+// buy preset feature removed (build 48): stock xash buy menu, no extras
+// (MENU_BUY_PRESETS_EDIT 40 gone with it)
 #define MENU_NUMERICAL_MENU -1
 // -- cs16client extension end -- //
 

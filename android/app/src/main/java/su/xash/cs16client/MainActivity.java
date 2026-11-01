@@ -50,7 +50,16 @@ public class MainActivity extends Activity {
         // amxx-1.9.0.5311: ArrayGetStringHandle/%a go through a validated
         // handle-table token -- 32-bit cells no longer truncate 64-bit
         // pointers (crash inside format()/AddString)
-        private static final String ADDONS_VERSION = "amxx-1.9.0.5312-" + BuildConfig.VERSION_NAME;
+        // amxx-1.9.0.5313: the sqlite module guards the lazily-created queue
+        // lock in ShutdownThreading() -- quitting from the menu before any
+        // map loads detached it with a null mutex (SIGSEGV on shutdown)
+        // amxx-1.9.0.5314: fakemeta/hamsandwich pdata arm64 table gains the
+        // m_signals sub-fields (m_flSignal/m_flState), fixing the "untranslated
+        // arm64 cell key=240" plugin offsets seen with heavy mods
+        // "-a7bg": force ONE bundle re-extract so the CS 1.6 menu splash
+        // (cstrike/gfx/shell/splash.bmp) replaces the Half-Life splash that
+        // old game-data packages left in the gamedir - see mayOverwrite
+        private static final String ADDONS_VERSION = "amxx-1.9.0.5314-" + BuildConfig.VERSION_NAME + "-b73-gamemenu";
 
         // separate gate for the bot asset sync (yaPB conf/graphs, eBot
         // configs/waypoints, ReGameDLL BotProfile/BotChatter dbs) - bump
@@ -314,6 +323,10 @@ public class MainActivity extends Activity {
                 // (YaPB as metamod plugin) - must run on every launch in case the
                 // engine/game ABI layout changed, and it is cheap anyway.
                 patchPluginsIni();
+
+                // re-apply any custom module registration lines (a bundle
+                // refresh rewrites modules.ini and would otherwise drop them)
+                ModuleInstaller.reapplyAll();
         }
 
         private int extractZipIfNeeded( String assetName, String prefKey,
@@ -437,6 +450,32 @@ public class MainActivity extends Activity {
                 // not configured in hamdata.ini" and the requesting plugin
                 // kills itself at load. Not user data - always refreshed.
                 if( rel.endsWith( "hamdata.ini" ))
+                        return true;
+
+                // the menu background: old game-data packages ship the
+                // Half-Life splash.bmp under cstrike/gfx/shell and the
+                // engine prefers the gamedir copy, so the CS 1.6 collage
+                // never showed ("cs16 client looks like Half-Life main
+                // ui"). Menu art, not user data - always refreshed.
+                if( rel.endsWith( "gfx/shell/splash.bmp" ))
+                        return true;
+
+                // the real CS 1.6 menu collage + logo (video reference):
+                // ship resource/BackgroundLayout.txt, the 1280x720 tiles
+                // and resource/game_menu.tga, and let them replace whatever
+                // the game-data package left in the gamedir. Menu art,
+                // not user data - always refreshed.
+                if( rel.endsWith( "BackgroundLayout.txt" ) ||
+                        rel.endsWith( "_loading.tga" ) ||
+                        rel.endsWith( "game_menu.tga" ))
+                        return true;
+
+                // the recreated GameUI menu rows: an original game-data
+                // package's GameMenu.res (2017 Android pack, quick-join row
+                // carrying a dead "engine Connect" command) predates this
+                // project's staged copy and must not win - menu behavior,
+                // not user data - always refreshed.
+                if( rel.endsWith( "resource/GameMenu.res" ))
                         return true;
 
                 // the reinstall button resets everything bundled to stock,
@@ -852,6 +891,8 @@ public class MainActivity extends Activity {
                 // a pack installed after app start still gets its seeds
                 // before the engine runs
                 ensureZpxVaultSeeds();
+                // and custom module lines are back in place after any rewrite
+                ModuleInstaller.reapplyAll();
                 launchEngine();
         }
 

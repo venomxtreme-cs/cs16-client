@@ -11,7 +11,10 @@ android {
 
 	defaultConfig {
 		applicationId = "su.xash.cs16clientamxx"
-		versionName = "1.35." + getReleaseBuildNum() + "-" + getGitHash()
+		// A7 release: new era 1.36 (was 1.35.36) - together with a reset
+		// build-number.txt (01) this yields "1.36.01-<githash>", matching
+		// the new public release tag
+		versionName = "1.36." + getReleaseBuildNum() + "-" + getGitHash()
 		versionCode = getBuildNum()
 		minSdk = 21
 		targetSdk = 36

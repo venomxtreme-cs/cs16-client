@@ -153,6 +153,9 @@ int CHudMenu :: MsgFunc_ShowMenu( const char *pszName, int iSize, void *pbuf )
 {
 	char *temp = NULL, *menustring;
 
+	// A7 build 73: runtime trace of the menu chain (test build)
+	gEngfuncs.Con_Printf( "MenuTrace: old text ShowMenu received\n" );
+
 	BufferReader reader( pszName, pbuf, iSize );
 
 	m_bitsValidSlots = reader.ReadShort();
@@ -231,6 +234,9 @@ int CHudMenu::MsgFunc_VGUIMenu( const char *pszName, int iSize, void *pbuf )
 	int menuType = reader.ReadByte();
 	m_bitsValidSlots = reader.ReadShort(); // is ignored
 
+	// A7 build 73: runtime trace of the menu chain (test build)
+	gEngfuncs.Con_Printf( "MenuTrace: VGUIMenu msg type=%d\n", menuType );
+
 	ShowVGUIMenu(menuType);
 	return 1;
 }
@@ -275,6 +281,10 @@ void CHudMenu::ShowVGUIMenu( int menuType )
 {
 	int team = g_PlayerExtraInfo[gHUD.m_Scoreboard.m_iPlayerNum].teamnumber;
 	int haveCancel = team != TEAM_UNASSIGNED ? 1 : 0;
+
+	// A7 build 73: runtime trace of the menu chain (test build)
+	gEngfuncs.Con_Printf( "MenuTrace: ShowVGUIMenu type=%d g_pMenu=%p oldtouch=%d\n",
+		menuType, (void *)g_pMenu, UseOldTouchMenusEnabled() ? 1 : 0 );
 
 	if( g_pMenu && !UseOldTouchMenusEnabled() )
 	{

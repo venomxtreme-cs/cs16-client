@@ -354,6 +354,8 @@ typedef int						(*pfnEngSrc_pfnGetAppID_t)			( void );
 typedef cmdalias_t*				(*pfnEngSrc_pfnGetAliases_t)		( void );
 typedef void					(*pfnEngSrc_pfnVguiWrap2_GetMouseDelta_t) ( int *x, int *y );
 typedef int							(*pfnEngSrc_pfnFilteredClientCmd_t) 	( char *szCmdString );
+// A7 build 109: rootcreep Steam player info API (mirrors engine cdll_int.h)
+typedef int							(*pfnEngSrc_pfnGetPlayerSteamInfo_t)	( uint64_t steamid, sbrk_player_info_t *player );
 
 // Pointers to the exported engine functions themselves
 typedef struct cl_enginefuncs_s
@@ -493,6 +495,10 @@ typedef struct cl_enginefuncs_s
 	pfnEngSrc_pfnGetAliases_t				pfnGetAliasList;
 	pfnEngSrc_pfnVguiWrap2_GetMouseDelta_t pfnVguiWrap2_GetMouseDelta;
 	pfnEngSrc_pfnFilteredClientCmd_t		pfnFilteredClientCmd;
+	// A7 build 109: rootcreep Steam player info - APPEND ONLY, must stay the
+	// last member of cl_enginefunc_t, same position as in the engine tree's
+	// engine/cdll_int.h (gEngfuncs = *pEnginefuncs copies it wholesale).
+	pfnEngSrc_pfnGetPlayerSteamInfo_t		pfnGetPlayerSteamInfo;
 } cl_enginefunc_t;
 
 // Function type declarations for engine destination functions

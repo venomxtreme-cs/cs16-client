@@ -68,10 +68,16 @@ final class UpdateChecker {
 
     // release source; the newest published tag (prereleases included - our
     // development builds are flagged as such and /releases/latest would
-    // never see them) defines the newest build
+    // never see them) defines the newest build. A whole page is fetched and
+    // the HIGHEST build number wins: a re-published old tag sorts to the
+    // front of the list and used to mask newer builds (the "stuck on an old
+    // build" report).
     private static final String API_URL =
-            "https://api.github.com/repos/venomxtreme-cs/cs16fresh/releases?per_page=1";
+            "https://api.github.com/repos/venomxtreme-cs/cs16fresh/releases?per_page=10";
     private static final String APK_NAME = "cs16client-app-git-release.apk";
+    // downloaded into the app-specific external dir (no storage permission
+    // needed to read it back, unlike the public Downloads dir)
+    private static final String APK_FILE = "cs16client-update.apk";
 
     private static final AtomicLong sDownloadId = new AtomicLong( -1 );
     private static boolean sReceiverRegistered = false;
@@ -109,7 +115,14 @@ final class UpdateChecker {
             @Override
             public void run() {
                 try {
-                    Release release = fetchLatestRelease();
+                    // one retry: a flaky first request (slow TLS handshake,
+                    // api hiccup) must not silently skip the update gate
+                    Release release = null;
+                    for( int attempt = 0; attempt < 2 && release == null; attempt++ ) {
+                        if( attempt > 0 )
+                            Thread.sleep( 1500 );
+                        release = fetchLatestRelease();
+                    }
                     if( release == null )
                         return;
 
@@ -151,8 +164,10 @@ final class UpdateChecker {
         URL url = new URL( API_URL );
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         try {
-            conn.setConnectTimeout( 6000 );
-            conn.setReadTimeout( 6000 );
+            // generous timeouts: a slow api.github.com response used to trip
+            // the old 6s budget and the gate silently gave up
+            conn.setConnectTimeout( 10000 );
+            conn.setReadTimeout( 15000 );
             conn.setRequestProperty( "User-Agent", "cs16client-launcher" );
             conn.setRequestProperty( "Accept", "application/vnd.github+json" );
 
@@ -167,24 +182,32 @@ final class UpdateChecker {
                 sb.append( line );
             reader.close();
 
-            // the endpoint returns an array; the first entry is the newest
-            // published release (drafts are hidden without auth)
+            // the endpoint returns an array sorted by creation date, but a
+            // re-published old tag can jump to the front - scan the whole
+            // page and take the highest build number instead of [0]
             JSONArray arr = new JSONArray( sb.toString() );
-            if( arr.length() == 0 )
+            JSONObject best = null;
+            int bestBuild = -1;
+            for( int i = 0; i < arr.length(); i++ ) {
+                JSONObject rel = arr.optJSONObject( i );
+                if( rel == null )
+                    continue;
+                String t = rel.optString( "tag_name", "" );
+                if( t.isEmpty() )
+                    continue;
+                int b = buildNumberFrom( t );
+                if( b > bestBuild ) {
+                    bestBuild = b;
+                    best = rel;
+                }
+            }
+            if( best == null )
                 return null;
 
-            JSONObject newest = arr.optJSONObject( 0 );
-            if( newest == null )
-                return null;
-
-            String tag = newest.optString( "tag_name", "" );
-            if( tag.isEmpty() )
-                return null;
-
-            return new Release( tag,
-                    newest.optString( "name", "" ),
-                    newest.optString( "body", "" ),
-                    newest.optString( "published_at", "" ) );
+            return new Release( best.optString( "tag_name", "" ),
+                    best.optString( "name", "" ),
+                    best.optString( "body", "" ),
+                    best.optString( "published_at", "" ) );
         } finally {
             conn.disconnect();
         }
@@ -296,22 +319,36 @@ final class UpdateChecker {
             public void run() {
                 handler.removeCallbacks( poller );
 
-                // DownloadManager put it into the public downloads dir
-                File apk = new File( Environment.getExternalStoragePublicDirectory(
-                        Environment.DIRECTORY_DOWNLOADS ), "cs16client-update.apk" );
-                if( !apk.isFile() ) {
-                    Log.w( TAG, "download finished but apk missing" );
-                    fail( "Download failed - the file is missing. Tap update to retry.",
-                            activity, state, primary, bar, status );
-                    return;
-                }
-
                 state[0] = STATE_INSTALLING;
                 primary.setEnabled( false );
                 primary.setText( "INSTALLING" );
                 status.setTextColor( 0xFF7E8CA0 );
                 status.setText( "Handing the update to the system installer..." );
-                installApk( activity, apk );
+
+                // Verify the download and stream it into the installer session
+                // OFF the main thread. This receiver runs on the main thread and
+                // copying a ~50 MB apk there trips the ANR watchdog - Android 16
+                // kills the app, which is the "update crashes" report.
+                new Thread( new Runnable() {
+                    @Override
+                    public void run() {
+                        final File apk = verifyDownload( activity,
+                                sDownloadId.get() );
+                        if( apk == null ) {
+                            activity.runOnUiThread( new Runnable() {
+                                @Override
+                                public void run() {
+                                    if( activity.isFinishing() || activity.isDestroyed() )
+                                        return;
+                                    fail( "Download failed - the file is missing. Tap update to retry.",
+                                            activity, state, primary, bar, status );
+                                }
+                            } );
+                            return;
+                        }
+                        installApk( activity, apk );
+                    }
+                }, "update-install" ).start();
             }
         };
 
@@ -504,16 +541,69 @@ final class UpdateChecker {
         if( dm == null )
             return;
 
+        // drop any previous/partial download so a stale or failed file is
+        // never handed to the installer (Android 16 can stop a background
+        // download and the completion receiver still fires)
+        long prev = sDownloadId.getAndSet( -1 );
+        if( prev >= 0 ) {
+            try { dm.remove( prev ); } catch( Throwable ignored ) {}
+        }
+        File stale = updateApkFile( activity );
+        if( stale != null && stale.exists() )
+            stale.delete();
+
         DownloadManager.Request req = new DownloadManager.Request( Uri.parse( apkUrl ) );
         req.setTitle( "Updating CS16Client" );
         req.setNotificationVisibility(
                 DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED );
-        req.setDestinationInExternalPublicDir(
-                Environment.DIRECTORY_DOWNLOADS, "cs16client-update.apk" );
+        // app-specific dir: readable with no storage permission, unlike the
+        // public Downloads dir which needs MANAGE_EXTERNAL_STORAGE on 13+
+        req.setDestinationInExternalFilesDir( activity, null, APK_FILE );
         req.setMimeType( "application/vnd.android.package-archive" );
 
         long id = dm.enqueue( req );
         sDownloadId.set( id );
+    }
+
+    /** the app-specific file the update apk is downloaded into (no permission needed). */
+    private static File updateApkFile( Context ctx ) {
+        File dir = ctx.getExternalFilesDir( null );
+        if( dir == null )
+            dir = new File( ctx.getFilesDir(), "updates" );
+        return new File( dir, APK_FILE );
+    }
+
+    /**
+     * Confirms the download actually succeeded and returns the apk, or null
+     * when it failed / is missing (never install a stale or partial file).
+     * Runs on a background thread.
+     */
+    private static File verifyDownload( Context ctx, long id ) {
+        if( id < 0 )
+            return null;
+        DownloadManager dm = (DownloadManager)
+                ctx.getSystemService( Context.DOWNLOAD_SERVICE );
+        if( dm == null )
+            return null;
+        Cursor c = dm.query( new DownloadManager.Query().setFilterById( id ));
+        if( c == null )
+            return null;
+        try {
+            if( !c.moveToFirst() )
+                return null;
+            int status = c.getInt( c.getColumnIndexOrThrow(
+                    DownloadManager.COLUMN_STATUS ));
+            if( status != DownloadManager.STATUS_SUCCESSFUL ) {
+                Log.w( TAG, "download not successful: status=" + status );
+                return null;
+            }
+        } finally {
+            c.close();
+        }
+        File apk = updateApkFile( ctx );
+        if( !apk.isFile() || apk.length() == 0 )
+            return null;
+        return apk;
     }
 
     private static void registerInstallReceiver( final Activity activity ) {
@@ -521,8 +611,16 @@ final class UpdateChecker {
             return;
         sReceiverRegistered = true;
 
-        activity.registerReceiver( sDownloadCompleteReceiver,
-                new IntentFilter( DownloadManager.ACTION_DOWNLOAD_COMPLETE ) );
+        IntentFilter filter =
+                new IntentFilter( DownloadManager.ACTION_DOWNLOAD_COMPLETE );
+        // Android 13+ wants an explicit export flag; DOWNLOAD_COMPLETE is a
+        // protected system broadcast so NOT_EXPORTED still receives it.
+        if( Build.VERSION.SDK_INT >= 33 ) {
+            activity.registerReceiver( sDownloadCompleteReceiver, filter,
+                    Context.RECEIVER_NOT_EXPORTED );
+        } else {
+            activity.registerReceiver( sDownloadCompleteReceiver, filter );
+        }
     }
 
     // ------------------------------------------------------------------
@@ -530,18 +628,29 @@ final class UpdateChecker {
     // no support-library FileProvider required)
     // ------------------------------------------------------------------
 
-    private static void installApk( Activity activity, File apk ) {
+    /**
+     * Hands the downloaded apk to the system installer. The caller must
+     * already be on a background thread: the session copy streams the whole
+     * apk and must never run on the main thread.
+     */
+    private static void installApk( final Activity activity, File apk ) {
         PackageManager pm = activity.getPackageManager();
 
-        // one-time per device: allow this launcher to start the installer
+        // one-time per device: allow this launcher to start the installer.
+        // startActivity has to run on the main thread.
         if( Build.VERSION.SDK_INT >= 26 && !pm.canRequestPackageInstalls() ) {
-            try {
-                activity.startActivity( new Intent(
-                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                        Uri.parse( "package:" + activity.getPackageName() ) ) );
-            } catch( Throwable t ) {
-                Log.w( TAG, "cannot open install permission screen", t );
-            }
+            activity.runOnUiThread( new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        activity.startActivity( new Intent(
+                                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse( "package:" + activity.getPackageName() ) ) );
+                    } catch( Throwable t ) {
+                        Log.w( TAG, "cannot open install permission screen", t );
+                    }
+                }
+            } );
             return;
         }
 

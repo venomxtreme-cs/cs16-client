@@ -242,7 +242,9 @@ public class CompilerActivity extends Activity {
                 String outName = script.getName().replaceAll( "(?i)\\.sma$", "" ) + ".amxx";
                 File out = new File( outputDir, outName );
 
-                appendLog( ">>> amxxpc " + script.getName() + "\n" );
+                // leading blank line so each script's compile block is
+                // visually separated from the previous one in the log view
+                appendLog( "\n>>> amxxpc " + script.getName() + "\n" );
 
                 List<String> args = new ArrayList<String>();
                 args.add( amxxpc.getAbsolutePath() );

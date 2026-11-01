@@ -745,6 +745,22 @@ TYPEDESCRIPTION	CBaseEntity::m_SaveData[] =
 
 int CBaseEntity::Save(CSave &save)
 {
+	// Robustness guard: saving only makes sense while the engine has an
+	// active savegame (gpGlobals->pSaveData set). Plugin code invoking this
+	// path outside of one (e.g. through a HAM forward with a bogus CSave
+	// pointer) used to null-deref inside CSave::BufferHeader and crash the
+	// whole process. Refuse quietly instead, once per entity class.
+	if (!gpGlobals->pSaveData)
+	{
+		static bool s_warned = false;
+		if (!s_warned)
+		{
+			s_warned = true;
+			ALERT(at_logged, "[ReGameDLL] Save() ignored outside of a savegame (class %s)\n", STRING(pev->classname));
+		}
+		return 0;
+	}
+
 	if (save.WriteEntVars("ENTVARS", pev))
 	{
 		return save.WriteFields("BASE", this, m_SaveData, ARRAYSIZE(m_SaveData));
@@ -927,7 +943,9 @@ CBaseEntity *CBaseEntity::Create(const char *szName, const Vector &vecOrigin, co
 	edict_t	*pent = CREATE_NAMED_ENTITY(MAKE_STRING(szName));
 	if (FNullEnt(pent))
 	{
-		ALERT(at_console, "NULL Ent in Create!\n");
+		// game log only: expected for virtual classnames used by custom
+		// weapon kits (no spawn function registered for them)
+		ALERT(at_logged, "NULL Ent in Create! (%s)\n", szName);
 		return nullptr;
 	}
 

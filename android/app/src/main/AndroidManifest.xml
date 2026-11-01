@@ -50,6 +50,11 @@
             android:theme="@android:style/Theme.NoTitleBar"
             android:exported="false" />
 
+        <activity
+            android:name=".ModulesActivity"
+            android:theme="@android:style/Theme.NoTitleBar"
+            android:exported="false" />
+
                 <activity
                         android:name=".CZeroActivity"
                         android:icon="@mipmap/ic_launcher_cz"

@@ -401,6 +401,10 @@ LINK_HOOK_VOID_CHAIN(ShowVGUIMenu, (CBasePlayer *pPlayer, int MenuType, int BitM
 
 void EXT_FUNC __API_HOOK(ShowVGUIMenu)(CBasePlayer *pPlayer, int MenuType, int BitMask, char *szOldMenu)
 {
+	// A7 build 73: runtime trace of the menu chain (test build)
+	ALERT(at_console, "MenuTrace: server ShowVGUIMenu type=%d vguimenus=%d\n",
+		MenuType, pPlayer->m_bVGUIMenus ? 1 : 0);
+
 #ifdef REGAMEDLL_ADD
 	if (CSGameRules()->ShouldSkipShowMenu()) {
 		CSGameRules()->MarkShowMenuSkipped();
@@ -3409,7 +3413,8 @@ void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *pa
 			}
 
 			int slot = Q_atoi(parg1);
-			if (HandleMenu_ChooseTeam(pPlayer, slot))
+			BOOL rg_jcRet = HandleMenu_ChooseTeam(pPlayer, slot);
+			if (rg_jcRet)
 			{
 				if (slot == MENU_SLOT_TEAM_VIP || slot == MENU_SLOT_TEAM_SPECT || pPlayer->m_bIsVIP)
 				{
@@ -3733,7 +3738,9 @@ void EXT_FUNC ClientCommand_(edict_t *pEntity)
 {
 	// Is the client spawned yet?
 	if (!pEntity->pvPrivateData)
+	{
 		return;
+	}
 
 	static char command[128] = "";
 	Q_strncpy(command, CMD_ARGV_(0), sizeof command - 1);
@@ -4709,14 +4716,12 @@ BOOL EXT_FUNC AddToFullPack(struct entity_state_s *state, int e, edict_t *ent, e
 		Q_memcpy(state->basevelocity, ent->v.basevelocity, sizeof(float) * 3);
 
 		state->weaponmodel = MODEL_INDEX(STRING(ent->v.weaponmodel));
-		// same blank-held-model guard as UpdateClientData: show the default
-		// knife in third person when a mod left the model empty
-		if (!state->weaponmodel)
-		{
-			CBasePlayer *pHeldOwner = CBasePlayer::Instance(const_cast<entvars_t *>(&ent->v));
-			if (pHeldOwner && pHeldOwner->m_pActiveItem && pHeldOwner->m_pActiveItem->m_iId == WEAPON_KNIFE)
-				state->weaponmodel = MODEL_INDEX("models/p_knife.mdl");
-		}
+		// Blank-held-model guard removed to match the original CS behaviour: when
+		// a mod intentionally leaves the held-weapon model empty (e.g. zombies
+		// whose claw hides the knife), an empty model stays empty and no
+		// third-person weapon is drawn. The guard used to force the default
+		// p_knife here, which made hidden knives reappear while the original
+		// Windows game DLL showed nothing.
 		state->gaitsequence = ent->v.gaitsequence;
 
 		state->spectator = (ent->v.flags & FL_SPECTATOR) ? TRUE : FALSE;

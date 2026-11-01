@@ -36,6 +36,8 @@
 
 #include "draw_util.h"
 
+// buy preset feature removed (build 48): stock xash buy menu, no extras
+
 #if _WIN32
 #define strncasecmp _strnicmp
 #endif
@@ -286,6 +288,8 @@ void CHud :: Init( void )
 	HOOK_COMMAND_FUNC( "special", __CmdFunc_InputCommandSpecial, );
 	HOOK_COMMAND_FUNC( "gunsmoke", __CmdFunc_GunSmoke, );
 
+	// buy preset feature removed (build 48): stock xash buy menu, no extras
+
 #ifdef __ANDROID__
 	HOOK_COMMAND_FUNC( "evdev_mouseopen", __CmdFunc_MouseSucksOpen );
 	HOOK_COMMAND_FUNC( "evdev_mouseclose", __CmdFunc_MouseSucksClose );
@@ -337,6 +341,8 @@ void CHud :: Init( void )
 	cl_min_t     = CVAR_CREATE( "cl_min_t", "1", FCVAR_ARCHIVE );
 	cl_min_ct    = CVAR_CREATE( "cl_min_ct", "2", FCVAR_ARCHIVE );
 	default_fov  = CVAR_CREATE( "default_fov", "90", 0 );
+	fov_angle    = CVAR_CREATE( "fov_angle", "0", FCVAR_ARCHIVE );
+	fov_lerp     = CVAR_CREATE( "fov_lerp", "0", FCVAR_ARCHIVE );
 	m_pCvarDraw  = CVAR_CREATE( "hud_draw", "1", FCVAR_ARCHIVE );
 	fastsprites  = CVAR_CREATE( "fastsprites", "0", FCVAR_ARCHIVE );
 	cl_gunsmoke  = CVAR_CREATE( "cl_gunsmoke", "0", FCVAR_ARCHIVE );
@@ -367,6 +373,7 @@ void CHud :: Init( void )
 
 	m_iLogo = 0;
 	m_iFOV = 0;
+	m_flCurrentFOV = 0.0f;
 
 	m_pSpriteList = NULL;
 

@@ -73,4 +73,20 @@
     <string name="plugins_rename_title">Rename plugin</string>
     <string name="plugins_add_title">Add plugin</string>
     <string name="plugins_add_hint">name.amxx</string>
+
+    <!-- custom module installer -->
+    <string name="tab_modules">Modules</string>
+    <string name="modules_title">Modules</string>
+    <string name="modules_sub">Install custom AMXX modules and Metamod plugins.</string>
+    <string name="modules_section_target">TARGET GAME</string>
+    <string name="modules_target_cstrike">Counter-Strike</string>
+    <string name="modules_target_valve">Half-Life</string>
+    <string name="modules_section_install">INSTALL</string>
+    <string name="modules_install_amxx">INSTALL AMXX MODULE</string>
+    <string name="modules_install_metamod">INSTALL METAMOD PLUGIN</string>
+    <string name="modules_scan_dropin">SCAN DROP-IN FOLDER</string>
+    <string name="modules_dropin_hint">Drop .so files into the custom_modules folder, then scan.</string>
+    <string name="modules_section_installed">INSTALLED</string>
+    <string name="modules_empty">No custom modules installed for this game.</string>
+    <string name="modules_restart_note">Restart the game for changes to take effect.</string>
 </resources>

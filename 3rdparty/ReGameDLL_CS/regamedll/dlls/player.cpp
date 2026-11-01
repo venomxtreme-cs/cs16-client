@@ -28,6 +28,14 @@
 
 #include "precompiled.h"
 
+#include <cstdint>
+#if !defined(_WIN32)
+	#include <sys/mman.h>
+	#include <unistd.h>
+	#include <dlfcn.h>
+	#include <cstring>
+#endif
+
 BOOL gInitHUD = TRUE;
 
 TYPEDESCRIPTION CBasePlayer::m_playerSaveData[] =
@@ -4717,10 +4725,163 @@ bool CBasePlayer::CanPlayerBuy(bool display)
 	return true;
 }
 
+// Plugin code (set_pdata / set_member with offsets that do not match this
+// build) can overwrite the item pointers with arbitrary values. Reading
+// through such a pointer jumps via a bogus vtable and the allocator aborts
+// on a misaligned free. Probe each pointer before use and silently drop the
+// invalid ones instead of crashing.
+bool ItemPointerReadable(const CBasePlayerItem *pItem)
+{
+	if (!pItem)
+		return true;
+
+	// no real object pointer is ever unaligned
+	if (reinterpret_cast<uintptr_t>(pItem) & (sizeof(void *) - 1))
+		return false;
+
+	const uintptr_t addr = reinterpret_cast<uintptr_t>(pItem);
+	long pageSize = 4096;
+#if defined(_WIN32)
+	MEMORY_BASIC_INFORMATION mbi;
+	if (!VirtualQuery(pItem, &mbi, sizeof(mbi)))
+		return false;
+	if (mbi.State != MEM_COMMIT || (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
+		return false;
+#elif defined(__linux__) || defined(__APPLE__)
+	static const long cachedPageSize = sysconf(_SC_PAGESIZE);
+	if (cachedPageSize > 0)
+		pageSize = cachedPageSize;
+	// msync(MS_ASYNC) over the containing page fails with ENOMEM when the
+	// page is not mapped - a readability probe that never touches the bytes.
+	if (msync(reinterpret_cast<void *>(addr & ~static_cast<uintptr_t>(pageSize - 1)),
+		static_cast<size_t>(pageSize), MS_ASYNC) != 0)
+		return false;
+#endif
+
+	// first qword is the vtable pointer - probe it the same way
+	const uintptr_t vptr = *reinterpret_cast<const uintptr_t *>(pItem);
+	if (vptr & (sizeof(void *) - 1))
+		return false;
+#if defined(_WIN32)
+	MEMORY_BASIC_INFORMATION vmbi;
+	if (!VirtualQuery(reinterpret_cast<void *>(vptr), &vmbi, sizeof(vmbi)))
+		return false;
+	if (vmbi.State != MEM_COMMIT || (vmbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
+		return false;
+#elif defined(__linux__) || defined(__APPLE__)
+	if (msync(reinterpret_cast<void *>(vptr & ~static_cast<uintptr_t>(pageSize - 1)),
+		static_cast<size_t>(pageSize), MS_ASYNC) != 0)
+		return false;
+
+	// crash #3 (zbot round restart): an aligned pointer can still be plain
+	// garbage that lands in readable memory, so the msync probe above passes
+	// while its fake vtable holds arbitrary code addresses - CanHolster then
+	// dispatched into the middle of FireBullets and dereferenced NULL.
+	// dladdr only resolves addresses covered by this library's exported
+	// symbols, so require the vptr to be one of our real class vtables.
+	//
+	// crash #4 (kick yapb -> join zbot): dladdr returns the NEAREST
+	// PRECEDING exported symbol, so a garbage vptr landing anywhere after a
+	// _ZTV symbol (even mid-data) still matched its name and the probe
+	// passed - then IsWeapon (slot 0x208) dispatched into deallocate. Tighten
+	// to the exact vtable start: in the Itanium ABI the vptr stored in an
+	// object points at the first virtual slot, which sits right after the
+	// 2-pointer header (offset-to-top + typeinfo), i.e. dli_saddr + 16.
+	// Random set_pdata scribble (small ints, handles, truncated pointers)
+	// essentially never lands exactly on a real vtable header, and if it
+	// somehow did, slot 0x208 is then a genuine safe IsWeapon.
+	Dl_info vinfo;
+	if (!dladdr(reinterpret_cast<void *>(vptr), &vinfo) || !vinfo.dli_sname
+		|| strncmp(vinfo.dli_sname, "_ZTV", 4) != 0
+		|| vptr != reinterpret_cast<uintptr_t>(vinfo.dli_saddr) + 2 * sizeof(void *))
+		return false;
+#endif
+	return true;
+}
+
+// The page-probe half of ItemPointerReadable, factored out so the owner check
+// below can validate the exact field address it is about to read (the field may
+// sit on the page after the object base).
+static bool PageReadable(uintptr_t addr)
+{
+#if defined(_WIN32)
+	MEMORY_BASIC_INFORMATION mbi;
+	if (!VirtualQuery(reinterpret_cast<void *>(addr), &mbi, sizeof(mbi)))
+		return false;
+	return mbi.State == MEM_COMMIT && !(mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD));
+#elif defined(__linux__) || defined(__APPLE__)
+	long pageSize = 4096;
+	static const long cachedPageSize = sysconf(_SC_PAGESIZE);
+	if (cachedPageSize > 0)
+		pageSize = cachedPageSize;
+	return msync(reinterpret_cast<void *>(addr & ~static_cast<uintptr_t>(pageSize - 1)),
+		static_cast<size_t>(pageSize), MS_ASYNC) == 0;
+#else
+	(void)addr;
+	return true;
+#endif
+}
+
+// &CBasePlayerItem::m_pPlayer, verified from the first statement of BOTH
+// CBasePlayerItem::AddToPlayer and CBasePlayerWeapon::AddToPlayer
+// (`m_pPlayer = pPlayer;`):
+//   LP64 (arm64) emits  `str x1,[x0,#0xe8]`  -> offset 232 (0xe8)
+//   ILP32 (arm32) emits `str.w r1,[r4,#0xb4]` -> offset 180 (0xb4)
+// The offset is NOT shared between ABIs: the vtable pointer and every
+// preceding pointer member are half as wide on arm32. Hardcoding the arm64
+// value made the owner test read item+0xe8 (m_fInReload, 0/1, on arm32),
+// which never equals the player, so SanitizeItemPointers wiped every weapon
+// pointer each frame on arm32 and the player could not shoot or switch.
+// Select it from the actual pointer width instead.
+#if defined(__aarch64__) || defined(__x86_64__) || defined(__LP64__) || defined(_LP64)
+static const uintptr_t kItemOwnerFieldOffset = 0xe8; // LP64
+#else
+static const uintptr_t kItemOwnerFieldOffset = 0xb4; // ILP32 (arm32)
+#endif
+
+// crash #5 (kick yapb -> join zbot, round restart): the exact-vtable probe
+// still accepts a REAL object of the WRONG class - it is a genuine vtable
+// start, so slot 0x210 dispatches to that class's own method (it landed on
+// CBaseEntity::KeyValue) and faulted. A carried item always points back at its
+// owner: m_pPlayer is set in AddToPlayer BEFORE the item is linked into
+// m_rgpPlayerItems, so every legitimately-held item satisfies
+// m_pPlayer == the player holding it. This owner test is class-agnostic and
+// rejects any pointer whose back-reference is not this player.
+static bool ItemOwnedByPlayer(const CBasePlayerItem *pItem, const CBasePlayer *pOwner)
+{
+	if (!pItem)
+		return true; // null needs no owner
+
+	const uintptr_t fieldAddr = reinterpret_cast<uintptr_t>(pItem) + kItemOwnerFieldOffset;
+	if (!PageReadable(fieldAddr))
+		return false; // a real item always has a readable m_pPlayer field
+
+	const CBasePlayer *pStored = *reinterpret_cast<const CBasePlayer *const *>(fieldAddr);
+	return pStored == pOwner;
+}
+
+void SanitizeItemPointers(CBasePlayer *pPlayer)
+{
+	if (!ItemPointerReadable(pPlayer->m_pActiveItem) || !ItemOwnedByPlayer(pPlayer->m_pActiveItem, pPlayer))
+		pPlayer->m_pActiveItem = nullptr;
+	if (!ItemPointerReadable(pPlayer->m_pClientActiveItem) || !ItemOwnedByPlayer(pPlayer->m_pClientActiveItem, pPlayer))
+		pPlayer->m_pClientActiveItem = nullptr;
+	if (!ItemPointerReadable(pPlayer->m_pLastItem) || !ItemOwnedByPlayer(pPlayer->m_pLastItem, pPlayer))
+		pPlayer->m_pLastItem = nullptr;
+	for (int i = 0; i < MAX_ITEM_TYPES; i++)
+	{
+		if (!ItemPointerReadable(pPlayer->m_rgpPlayerItems[i]) || !ItemOwnedByPlayer(pPlayer->m_rgpPlayerItems[i], pPlayer))
+			pPlayer->m_rgpPlayerItems[i] = nullptr;
+	}
+}
+
 LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, PreThink)
 
 void EXT_FUNC CBasePlayer::__API_HOOK(PreThink)()
 {
+	// drop plugin-written garbage item pointers before anything derefs them
+	SanitizeItemPointers(this);
+
 	// These buttons have changed this frame
 	int buttonsChanged = (m_afButtonLast ^ pev->button);
 
@@ -7285,6 +7446,11 @@ LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayer, AddPlayerItem, (CBasePlayerItem *pItem)
 // Add a weapon to the player (Item == Weapon == Selectable Object)
 BOOL EXT_FUNC CBasePlayer::__API_HOOK(AddPlayerItem)(CBasePlayerItem *pItem)
 {
+	// drop plugin-written garbage item pointers before anything walks them
+	SanitizeItemPointers(this);
+	if (!ItemPointerReadable(pItem))
+		return FALSE;
+
 	CBasePlayerItem *pInsert = m_rgpPlayerItems[pItem->iItemSlot()];
 	while (pInsert)
 	{
@@ -7648,6 +7814,9 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, UpdateClientData)
 // reflecting all of the HUD state info.
 void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
 {
+	// drop plugin-written garbage item pointers before the vtable calls below
+	SanitizeItemPointers(this);
+
 	if (m_fInitHUD)
 	{
 		m_fInitHUD = FALSE;
@@ -7938,6 +8107,12 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
 		UpdateStatusBar();
 		m_flNextSBarUpdateTime = gpGlobals->time + 0.2f;
 	}
+
+	// the item-update loop above dispatches virtual calls that plugin
+	// Ham/ReAPI hooks intercept and can scribble set_pdata over
+	// m_pActiveItem again - re-sanitize before the deref below so a
+	// plugin-written garbage pointer cannot survive to the vtable call
+	SanitizeItemPointers(this);
 
 	if (!(m_flDisplayHistory & DHF_AMMO_EXHAUSTED))
 	{

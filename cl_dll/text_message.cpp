@@ -231,9 +231,14 @@ int CHudTextMessage::MsgFunc_TextMsg( const char *pszName, int iSize, void *pbuf
 		break;
 	}
 	case HUD_PRINTNOTIFY:
-		psz[0] = 1;  // mark this message to go into the notify buffer
+		// A7 build 93: connect/join/leave messages draw as normal CS
+		// message text - the amber credits-font line where the say/radio
+		// messages show - instead of the engine's white top-of-screen
+		// console rows (user: "switch it like text message Player Left
+		// the game"). SayTextPrint mirrors it into the console history.
+		psz[0] = 2; // mark, so SayTextPrint will color it
 		Localize_Format( psz + 1, MAX_TEXTMSG_STRING - 1, msg_text, args, 4 );
-		ConsolePrint( ConvertCRtoNL( psz ) );
+		gHUD.m_SayText.SayTextPrint( ConvertCRtoNL( psz ), 128 );
 		break;
 
 	case HUD_PRINTTALK:

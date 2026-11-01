@@ -1061,6 +1061,11 @@ bool IsSecondaryWeaponId(int id);
 const char *GetWeaponAliasFromName(const char *weaponName);
 bool CurrentWeaponSatisfies(CBasePlayerWeapon *pWeapon, int id, int classId);
 
+// item-pointer sanitizer (see ItemPointerReadable in player.cpp): drops
+// plugin-written garbage item pointers before virtual dispatch derefs them
+bool ItemPointerReadable(const CBasePlayerItem *pItem);
+void SanitizeItemPointers(CBasePlayer *pPlayer);
+
 #ifdef REGAMEDLL_ADD
 void SyncRoundTimerForAll();
 #endif

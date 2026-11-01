@@ -16,7 +16,8 @@ import android.widget.TextView;
 final class TabBar {
 	static final int TAB_LAUNCH = 0;
 	static final int TAB_PLUGINS = 1;
-	static final int TAB_COMPILE = 2;
+	static final int TAB_MODULES = 2;
+	static final int TAB_COMPILE = 3;
 
 	private TabBar() {
 	}
@@ -28,12 +29,16 @@ final class TabBar {
 		style( activity, R.id.tab_plugins_icon, R.id.tab_plugins_label,
 			R.drawable.ic_list_white, R.drawable.ic_list_gray,
 			active == TAB_PLUGINS );
+		style( activity, R.id.tab_modules_icon, R.id.tab_modules_label,
+			R.drawable.ic_chip_white, R.drawable.ic_chip_gray,
+			active == TAB_MODULES );
 		style( activity, R.id.tab_compile_icon, R.id.tab_compile_label,
 			R.drawable.ic_code_white, R.drawable.ic_code_gray,
 			active == TAB_COMPILE );
 
 		bind( activity, R.id.tab_launch, TAB_LAUNCH, active, MainActivity.class );
 		bind( activity, R.id.tab_plugins, TAB_PLUGINS, active, PluginsActivity.class );
+		bind( activity, R.id.tab_modules, TAB_MODULES, active, ModulesActivity.class );
 		bind( activity, R.id.tab_compile, TAB_COMPILE, active, CompilerActivity.class );
 	}
 

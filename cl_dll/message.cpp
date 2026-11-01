@@ -29,16 +29,20 @@
 static int Utf8StringLen(const char *pszText)
 {
 	if ( !pszText ) return 0;
-	int length = 0;
-	Con_UtfProcessChar( 0 );
-	while ( *pszText )
+
+	// count visible chars exactly like the draw path does: one per
+	// decoded utf-8 sequence or classic single-byte char, continuation
+	// bytes of a valid sequence don't count, nothing is ever dropped
+	Con_UtfProcessChar( 0 ); // reset utf state
+
+	int len = 0;
+	for ( const unsigned char *p = (const unsigned char *)pszText; *p; p++ )
 	{
-		int uch = Con_UtfProcessChar( (unsigned char)*pszText );
-		if ( uch )
-			length++;
-		pszText++;
+		if ( Con_UtfProcessChar( *p ) )
+			len++;
 	}
-	return length;
+
+	return len;
 }
 
 int CHudMessage::Init(void)
@@ -204,7 +208,7 @@ void CHudMessage::MessageScanNextChar( void )
 
 	if ( m_parms.pMessage->effect == 1 && m_parms.charTime != 0 )
 	{
-		if ( m_parms.x >= 0 && m_parms.y >= 0 && (m_parms.x + gHUD.GetCharWidth( m_parms.text )) <= ScreenWidth )
+		if ( m_parms.x >= 0 && m_parms.y >= 0 && (m_parms.x + m_parms.textWidth ) <= ScreenWidth )
 			DrawUtils::TextMessageDrawChar( m_parms.x, m_parms.y, m_parms.text, m_parms.pMessage->r2, m_parms.pMessage->g2, m_parms.pMessage->b2 );
 	}
 }
@@ -256,6 +260,7 @@ void CHudMessage::MessageDrawScan( client_textmessage_t *pMessage, float time )
 	int i, j, length, width;
 	const char *pText;
 	unsigned char line[512];
+	int linec[512]; // decoded char for each byte (0 = continuation byte)
 
 	pText = pMessage->pMessage;
 	// Count lines
@@ -265,7 +270,7 @@ void CHudMessage::MessageDrawScan( client_textmessage_t *pMessage, float time )
 	length = 0;
 	width = 0;
 	m_parms.totalWidth = 0;
-	Con_UtfProcessChar( 0 );
+	Con_UtfProcessChar( 0 ); // reset utf state
 	while ( *pText )
 	{
 		if ( *pText == '\n' )
@@ -277,14 +282,11 @@ void CHudMessage::MessageDrawScan( client_textmessage_t *pMessage, float time )
 		}
 		else
 		{
-			int uch = Con_UtfProcessChar( (unsigned char)*pText );
-
-			if ( !uch )
-			{
-				pText++;
-				continue;
-			}
-			width += gHUD.GetCharWidth( uch );
+			// decode like the draw path: a utf-8 sequence is one char
+			// in the font's charset, stray bytes stay themselves
+			int ch = Con_UtfProcessChar( (unsigned char)*pText );
+			if ( ch )
+				width += gHUD.GetCharWidth( ch );
 		}
 		pText++;
 		length++;
@@ -300,6 +302,8 @@ void CHudMessage::MessageDrawScan( client_textmessage_t *pMessage, float time )
 
 	MessageScanStart();
 
+	Con_UtfProcessChar( 0 ); // reset utf state
+
 	for ( i = 0; i < m_parms.lines; i++ )
 	{
 		m_parms.lineLength = 0;
@@ -308,15 +312,14 @@ void CHudMessage::MessageDrawScan( client_textmessage_t *pMessage, float time )
 		{
 			unsigned char c = *pText;
 			line[m_parms.lineLength] = c;
+			// decode once here so measuring and drawing agree: a utf-8
+			// sequence becomes one char in the font's charset, stray
+			// bytes stay themselves, nothing is dropped
+			int ch = Con_UtfProcessChar( c );
+			linec[m_parms.lineLength] = ch;
+			if ( ch )
+				m_parms.width += gHUD.GetCharWidth( ch );
 			m_parms.lineLength++;
-			int uch = Con_UtfProcessChar( c );
-
-			if ( !uch )
-			{
-				pText++;
-				continue;
-			}
-			m_parms.width += gHUD.GetCharWidth( uch );
 			pText++;
 		}
 		pText++;		// Skip LF
@@ -324,19 +327,17 @@ void CHudMessage::MessageDrawScan( client_textmessage_t *pMessage, float time )
 
 		m_parms.x = XPosition( pMessage->x, m_parms.width, m_parms.totalWidth );
 
-		Con_UtfProcessChar( 0 );
 		for ( j = 0; j < m_parms.lineLength; j++ )
 		{
-			m_parms.text = line[j];
-			int uch = Con_UtfProcessChar( m_parms.text );
-			int next = m_parms.x + gHUD.GetCharWidth( uch ? uch : m_parms.text );
+			if ( !linec[j] )
+				continue; // continuation byte of a multi-byte sequence
 
-			float savedCharTime = m_parms.charTime;
+			m_parms.text = linec[j];
+			m_parms.textWidth = gHUD.GetCharWidth( m_parms.text );
+			int next = m_parms.x + m_parms.textWidth;
+
 			MessageScanNextChar();
 
-			if ( !uch )
-				m_parms.charTime = savedCharTime;
-			
 			if ( m_parms.x >= 0 && m_parms.y >= 0 && next <= ScreenWidth )
 				m_parms.x += DrawUtils::TextMessageDrawChar( m_parms.x, m_parms.y, m_parms.text, m_parms.r, m_parms.g, m_parms.b );
 		}
@@ -454,11 +455,65 @@ int CHudMessage::Draw( float fTime )
 }
 
 
+// "TextMessage0".."TextMessage7" are the engine's text channels used by
+// server hudmessage/dhudmessage (TE_TEXTMESSAGE). Original GoldSrc draws
+// these per channel: a fresh message on a channel REPLACES the old one
+// and restarts it - so a re-sent message must never be silently dropped
+static bool IsEngineTextChannelName( const char *pName )
+{
+	if( !pName )
+		return false;
+
+	if( strncmp( pName, "TextMessage", 11 ))
+		return false;
+
+	return pName[11] >= '0' && pName[11] <= '7' && pName[12] == '\0';
+}
+
 void CHudMessage::MessageAdd( const char *pName, float time, qboolean hintMessage/*, unsigned int font */ )
 {
 	int i, j;
 	client_textmessage_t *tempMessage;
 	client_textmessage_t *message;
+
+	if ( IsEngineTextChannelName( pName ))
+	{
+		client_textmessage_t *channelMsg = TextMessageGet( pName );
+		if ( !channelMsg )
+			return;
+
+		// empty text means "clear this channel" (clear_sync_hud)
+		const bool empty = !channelMsg->pMessage || channelMsg->pMessage[0] == '\0';
+
+		// already showing this channel: restart it, or wipe it if cleared
+		for ( j = 0; j < maxHUDMessages; j++ )
+		{
+			if ( m_pMessages[j].pMessage == channelMsg )
+			{
+				if ( empty )
+					m_pMessages[j].pMessage = NULL;
+				else
+					m_startTime[j] = time;
+				return;
+			}
+		}
+
+		if ( empty )
+			return;
+
+		// new channel: take a free slot
+		for ( j = 0; j < maxHUDMessages; j++ )
+		{
+			if ( !m_pMessages[j].pMessage )
+			{
+				m_pMessages[j].pMessage = channelMsg;
+				m_startTime[j] = time;
+				return;
+			}
+		}
+
+		return; // no free slot - drop rather than corrupt the list
+	}
 
 	for ( i = 0; i < maxHUDMessages; i++ )
 	{
@@ -630,6 +685,21 @@ void CHudMessage::MessageAdd(client_textmessage_t * newMessage )
 
 	// Turn on drawing
 	m_iFlags |= HUD_DRAW;
+
+	// director (dhudmessage) messages come from a small rotating set of
+	// parser buffers: if a slot already displays this buffer, restart it
+	// instead of piling up an aliased copy. Old code showed the same text
+	// several times (each copy drawn over itself looked over-bright),
+	// garbled digits/spaces when a recycled buffer changed text under an
+	// old slot, and silently lost new messages once all slots were used
+	for ( int i = 0; i < maxHUDMessages; i++ )
+	{
+		if ( m_pMessages[i].pMessage == newMessage )
+		{
+			m_startTime[i] = gHUD.m_flTime;
+			return;
+		}
+	}
 
 	if( !strcmp( newMessage->pName, "Custom" ) ) // Hey, it's mine way of detecting allocated message
 	{

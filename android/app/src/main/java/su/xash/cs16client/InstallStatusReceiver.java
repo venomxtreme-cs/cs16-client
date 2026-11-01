@@ -43,9 +43,24 @@ public class InstallStatusReceiver extends BroadcastReceiver {
         switch( status ) {
             case PackageInstaller.STATUS_PENDING_USER_ACTION:
                 // the system wants the user to confirm the install
-                Intent confirm = intent.getParcelableExtra( Intent.EXTRA_INTENT );
+                Intent confirm;
+                if( Build.VERSION.SDK_INT >= 33 )
+                    confirm = intent.getParcelableExtra( Intent.EXTRA_INTENT,
+                            Intent.class );
+                else
+                    confirm = intent.getParcelableExtra( Intent.EXTRA_INTENT );
                 if( confirm != null ) {
                     confirm.addFlags( Intent.FLAG_ACTIVITY_NEW_TASK );
+                    // Android 16 blocks launching an activity handed to us via a
+                    // nested intent unless the launch security protection is
+                    // explicitly dropped (method added in API 36 - called by
+                    // reflection so this still builds against older SDKs).
+                    if( Build.VERSION.SDK_INT >= 36 ) {
+                        try {
+                            Intent.class.getMethod(
+                                    "removeLaunchSecurityProtection" ).invoke( confirm );
+                        } catch( Throwable ignored ) { }
+                    }
                     try {
                         context.startActivity( confirm );
                     } catch( Throwable t ) {

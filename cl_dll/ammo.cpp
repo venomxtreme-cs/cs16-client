@@ -26,6 +26,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 #include "strl.h"
 
 #include "ammohistory.h"
@@ -315,6 +316,8 @@ int CHudAmmo::Init(void)
 
 	xhair_color = CVAR_CREATE( "xhair_color", "0 255 0 255", FCVAR_ARCHIVE );
 	xhair_additive = CVAR_CREATE( "xhair_additive", "0", FCVAR_ARCHIVE );
+
+	cl_crosshair_type = CVAR_CREATE( "cl_crosshair_type", "0", FCVAR_ARCHIVE );
 
 	return 1;
 }
@@ -1521,6 +1524,60 @@ void CHudAmmo::DrawCrosshairPadding( int _pad, int _x0, int _y0, int _x1, int _y
 	DrawUtils::Draw2DQuad( x1, y0, x1 + pad, y1 );             // right part
 }
 
+void CHudAmmo::DrawCrosshairCircle( int center_x, int center_y, int radius, int thickness, int pad, bool outline )
+{
+	int color[4] = { 0, 255, 0, 255 };
+	float r = (float)radius;
+	float t = (float)thickness;
+	float half;
+	int segments;
+
+	if ( outline )
+	{
+		/* black ring a bit thicker than the colored one */
+		t += 2.0f * (float)pad;
+
+		if ( sscanf( xhair_color->string, "%*d %*d %*d %d", &color[3] ) != 1 )
+			color[3] = 255;
+
+		color[0] = color[1] = color[2] = 0;
+		color[3] = bound( 0, color[3], 255 );
+	}
+	else if ( sscanf( xhair_color->string, "%d %d %d %d", &color[0], &color[1], &color[2], &color[3] ) == 4 )
+	{
+		color[0] = bound( 0, color[0], 255 );
+		color[1] = bound( 0, color[1], 255 );
+		color[2] = bound( 0, color[2], 255 );
+		color[3] = bound( 0, color[3], 255 );
+	}
+
+	gEngfuncs.pTriAPI->Color4f( color[0] / 255.0f, color[1] / 255.0f, color[2] / 255.0f, color[3] / 255.0f );
+
+	if ( r < 1.0f )
+		r = 1.0f;
+	if ( t < 1.0f )
+		t = 1.0f;
+
+	/* enough segments so the quads overlap into a solid ring */
+	segments = (int)( 2.0f * (float)M_PI * r / ( t * 0.75f ) ) + 1;
+
+	if ( segments < 16 )
+		segments = 16;
+	else if ( segments > 128 )
+		segments = 128;
+
+	half = t * 0.5f;
+
+	for ( int i = 0; i < segments; i++ )
+	{
+		float a = 2.0f * (float)M_PI * (float)i / (float)segments;
+		float px = (float)center_x + cosf( a ) * r;
+		float py = (float)center_y + sinf( a ) * r;
+
+		DrawUtils::Draw2DQuad( px - half, py - half, px + half, py + half );
+	}
+}
+
 void CHudAmmo::DrawCrosshair( int weaponId )
 {
 	int center_x, center_y;
@@ -1537,6 +1594,23 @@ void CHudAmmo::DrawCrosshair( int weaponId )
 	length = ScaleForRes( xhair_size->value, ScreenHeight * gHUD.m_flScale );
 	thickness = ScaleForRes( xhair_thick->value, ScreenHeight * gHUD.m_flScale );
 	thickness = max( 1, thickness );
+
+	/* build 101: cl_crosshair_size (auto|small|medium|large in Options) used
+	 * to be ignored on the vector crosshair, so the setting did nothing.
+	 * PC picks the crosshair scale base 1024 (small) / 800 (medium) /
+	 * 640 (large) and the legacy path multiplies by ScreenWidth/base;
+	 * medium is the neutral step here, so scale by 800/base. */
+	{
+		float sizeScale = 1.0f;
+
+		if( m_iCrosshairScaleBase > 0 )
+			sizeScale = 800.0f / (float)m_iCrosshairScaleBase;
+
+		gap = (int)( gap * sizeScale + 0.5f );
+		length = (int)( length * sizeScale + 0.5f );
+		gap = max( gap, 0 );
+		length = max( length, 4 );
+	}
 
 	inner.left = ( center_x - gap - thickness / 2 );
 	inner.right = ( inner.left + 2 * gap + thickness );
@@ -1564,15 +1638,39 @@ void CHudAmmo::DrawCrosshair( int weaponId )
 	else
 		gEngfuncs.pTriAPI->RenderMode( kRenderTransAlpha );
 
-	if ( xhair_dot->value )
-		DrawCrosshairSection( x0, y0, x1, y1 );
+	int crosshairType = (int)cl_crosshair_type->value;
 
-	if ( !xhair_t->value )
-		DrawCrosshairSection( x0, outer.top, x1, inner.top );
+	if ( crosshairType < 0 || crosshairType > 3 )
+		crosshairType = 0;
 
-	DrawCrosshairSection( x0, inner.bottom, x1, outer.bottom );
-	DrawCrosshairSection( outer.left, y0, inner.left, y1 );
-	DrawCrosshairSection( inner.right, y0, outer.right, y1 );
+	if ( crosshairType == 2 )
+	{
+		/* circle: ring of quads, black outline first if padding is wanted */
+		int pad = (int)xhair_pad->value;
+
+		if ( pad > 0 )
+			DrawCrosshairCircle( center_x, center_y, gap + length / 2, thickness, pad + 1, true );
+
+		DrawCrosshairCircle( center_x, center_y, gap + length / 2, thickness, 0, false );
+
+		if ( xhair_dot->value )
+			DrawCrosshairSection( x0, y0, x1, y1 );
+	}
+	else
+	{
+		if ( xhair_dot->value || crosshairType == 3 )
+			DrawCrosshairSection( x0, y0, x1, y1 );
+
+		if ( crosshairType != 3 )
+		{
+			if ( !xhair_t->value && crosshairType != 1 )
+				DrawCrosshairSection( x0, outer.top, x1, inner.top );
+
+			DrawCrosshairSection( x0, inner.bottom, x1, outer.bottom );
+			DrawCrosshairSection( outer.left, y0, inner.left, y1 );
+			DrawCrosshairSection( inner.right, y0, outer.right, y1 );
+		}
+	}
 
 	if ( xhair_additive->value )
 		gEngfuncs.pTriAPI->RenderMode( kRenderTransAlpha );
@@ -1583,15 +1681,18 @@ void CHudAmmo::DrawCrosshair( int weaponId )
 		/* don't scale this */
 		int pad = (int)xhair_pad->value;
 
-		if ( xhair_dot->value )
+		if ( xhair_dot->value || crosshairType == 3 )
 			DrawCrosshairPadding( pad, x0, y0, x1, y1 );
 
-		if ( !xhair_t->value )
-			DrawCrosshairPadding( pad, x0, outer.top, x1, inner.top );
+		if ( crosshairType != 2 && crosshairType != 3 )
+		{
+			if ( !xhair_t->value && crosshairType != 1 )
+				DrawCrosshairPadding( pad, x0, outer.top, x1, inner.top );
 
-		DrawCrosshairPadding( pad, x0, inner.bottom, x1, outer.bottom );
-		DrawCrosshairPadding( pad, outer.left, y0, inner.left, y1 );
-		DrawCrosshairPadding( pad, inner.right, y0, outer.right, y1 );
+			DrawCrosshairPadding( pad, x0, inner.bottom, x1, outer.bottom );
+			DrawCrosshairPadding( pad, outer.left, y0, inner.left, y1 );
+			DrawCrosshairPadding( pad, inner.right, y0, outer.right, y1 );
+		}
 	}
 }
 
@@ -1707,7 +1808,7 @@ void CHudAmmo::DrawCrosshair()
 	}
 
 	// drawing
-	if ( g_iXash && xhair_enable->value )
+	if ( g_iXash && ( xhair_enable->value || cl_crosshair_type->value ) )
 	{
 		DrawCrosshair( weaponid );
 		return;
@@ -1773,6 +1874,12 @@ void CHudAmmo::CalculateCrosshairSize()
 				m_iCrosshairScaleBase = 800;
 			else
 				m_iCrosshairScaleBase = 640;
+		}
+		else
+		{
+			// build 101: was left at its -1 init on narrow screens, which
+			// made every size calculation below run against a bogus base
+			m_iCrosshairScaleBase = 800;
 		}
 		break;
 	case 1:
