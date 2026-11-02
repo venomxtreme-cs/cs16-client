@@ -98,38 +98,12 @@ public class XashActivity extends SDLActivity {
 		}
 	}
 
-	// build 117 (user: "back STILL returns to the app launcher, not pause")
-	// - the build-116 onBackPressed() override NEVER RAN: the SDL surface's
-	// OnKeyListener (handleKeyEvent) consumes KEYCODE_BACK first and hands
-	// the raw back key to the engine, which treats it as quit-the-session -
-	// SDLActivity then closes itself and drops back to the CS16Fresh
-	// launcher screen. So the back key is now intercepted at the gateway
-	// (dispatchKeyEvent), BEFORE SDL/the view/JNI ever see it, and swapped
-	// for the GoldSource ESC key = in-game pause menu. The engine only
-	// ever sees ESC; the real BACK never propagates to SDL, the engine or
-	// the activity stack. Exiting the game is done from the in-game menu.
-	@Override
-	public boolean dispatchKeyEvent(android.view.KeyEvent event) {
-		if (event.getKeyCode() == android.view.KeyEvent.KEYCODE_BACK) {
-			final int esc = android.view.KeyEvent.KEYCODE_ESCAPE;
-			if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
-				if (!event.isRepeat() && !event.isCanceled())
-					onNativeKeyDown(esc);
-			} else if (event.getAction() == android.view.KeyEvent.ACTION_UP) {
-				onNativeKeyUp(esc);
-			}
-			// marker string scanned from the dex to prove this build ships
-			android.util.Log.i("XashBack", "build117: back swallowed, ESC sent to engine");
-			return true;
-		}
-		return super.dispatchKeyEvent(event);
-	}
-
-	// belt: unreachable while dispatchKeyEvent swallows BACK, kept so no
-	// other path can ever finish this activity from a back press
+	// build 117 belt: dispatchKeyEvent (merged below) swallows BACK, so this
+	// is unreachable - kept so no other path can ever finish this activity
+	// from a back press ("it must never leave the running game")
 	@Override
 	public void onBackPressed() {
-		// intentionally empty - back must never leave the running game
+		// intentionally empty
 	}
 
 	// JNI reads a snapshot; all View access stays on Android's UI thread.
@@ -1422,6 +1396,29 @@ public class XashActivity extends SDLActivity {
 	public boolean dispatchKeyEvent(KeyEvent event) {
 		if (SDLActivity.mBrokenLibraries) {
 			return false;
+		}
+
+		// build 117 (user, again: back STILL returned to the app launcher,
+		// "not pause"): this gateway ALWAYS ran first (the 116 onBackPressed
+		// override was unreachable - the SDL surface's OnKeyListener handles
+		// KEYCODE_BACK and hands it to the engine, which treats raw Android
+		// Back as quit-the-session: SDLActivity closes itself and the task
+		// pops back to the CS16Fresh launcher). Back is swallowed HERE,
+		// before SDL/the view/JNI ever see it, and swapped for the GoldSource
+		// ESC key = in-game pause menu. The real BACK never reaches the
+		// engine or the activity stack; leaving the game goes through the
+		// in-game menu (Disconnect / Quit).
+		if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
+			final int esc = KeyEvent.KEYCODE_ESCAPE;
+			if (event.getAction() == KeyEvent.ACTION_DOWN) {
+				if (event.getRepeatCount() == 0 && !event.isCanceled())
+					onNativeKeyDown(esc);
+			} else if (event.getAction() == KeyEvent.ACTION_UP) {
+				onNativeKeyUp(esc);
+			}
+			// marker string scanned from the dex to prove this build ships it
+			android.util.Log.i("XashBack", "build117: back swallowed, ESC sent to engine");
+			return true;
 		}
 
 		int keyCode = event.getKeyCode();
