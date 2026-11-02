@@ -96,6 +96,28 @@ public class XashActivity extends SDLActivity {
 				updateWindowInsets(view, view.getRootWindowInsets()));
 			mSurface.requestApplyInsets();
 		}
+
+		// build 118 belt (item 2): the manifest opts out of predictive back so
+		// dispatchKeyEvent (below) sees KEYCODE_BACK again on Android 16; this
+		// callback is the SECOND belt for any device/path where the opt-out is
+		// ignored - predictive back then delivers the event HERE instead of
+		// KEYCODE_BACK, and both paths end in the same ESC = pause menu, so the
+		// game can never be closed by a back press.
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+			try {
+				getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+						android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+						() -> {
+							final int esc = KeyEvent.KEYCODE_ESCAPE;
+							onNativeKeyDown(esc);
+							onNativeKeyUp(esc);
+							// marker string scanned from the dex to prove this build ships it
+							android.util.Log.i("XashBack", "build118: OnBackInvoked -> ESC sent to engine");
+						});
+			} catch (Throwable t) {
+				// legacy KEYCODE_BACK dispatch covers this build
+			}
+		}
 	}
 
 	// build 117 belt: dispatchKeyEvent (merged below) swallows BACK, so this

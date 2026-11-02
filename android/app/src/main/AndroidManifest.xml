@@ -49,11 +49,18 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- build 118 (item 2): targetSdk 36 = Android 16 predictive back, which
+         stops dispatching KEYCODE_BACK entirely (see libsdl SDL issue 13794),
+         so XashActivity's dispatchKeyEvent BACK-swallow never ran and the
+         system finished the activity -> "the game automaticly shut down".
+         false = opt out -> legacy BACK dispatch restored (official Android 16
+         behavior-changes doc: "migration or opt-out required"). -->
     <application
         android:forceQueryable="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher"
+        android:enableOnBackInvokedCallback="false"
         tools:targetApi="r">
 
         <activity
