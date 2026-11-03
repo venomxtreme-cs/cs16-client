@@ -64,7 +64,17 @@ public class XashActivity extends SDLActivity {
 		String basedir = intent != null ? intent.getStringExtra("basedir") : null;
 		if (basedir != null)
 			return new File(basedir);
-		return new File(Environment.getExternalStorageDirectory(), "xash");
+		// A7 build 126 (item 10): canonical shared-storage fallback chain -
+		// launcher, add-on installer and engine must land on the SAME root
+		// (/storage/emulated/0/xash) even when the storage provider
+		// misbehaves (else: "no pak in valve" over files that exist)
+		try {
+			File root = Environment.getExternalStorageDirectory();
+			if (root != null)
+				return new File(root, "xash");
+		} catch (Throwable ignored) {
+		}
+		return new File("/storage/emulated/0/xash");
 	}
 
 	@Override
@@ -358,6 +368,12 @@ public class XashActivity extends SDLActivity {
 						if (mLoadingDlBar != null) mLoadingDlBar.setVisibility(View.GONE);
 						if (mLoadingDlFooter != null) mLoadingDlFooter.setVisibility(View.GONE);
 						if (mLoadingDlRow != null) mLoadingDlRow.setVisibility(View.GONE);
+						// A7 build 126 (item 2, user: "when download finished
+						// don't show it just loading join that's it"): the bare
+						// file counter gets its own hide too - the transfer
+						// block folding must leave NOTHING of the download UI
+						// on screen, only the plain loading/join view
+						if (mLoadingDlCount != null) mLoadingDlCount.setVisibility(View.GONE);
 						moveLoadingCancel(mLoadingBarRow);
 						return;
 					}
@@ -1529,7 +1545,18 @@ public class XashActivity extends SDLActivity {
 		if (basedir != null) {
 			nativeSetenv("XASH3D_BASEDIR", basedir);
 		} else {
-			String rootPath = Environment.getExternalStorageDirectory().getAbsolutePath() + "/xash";
+			// A7 build 126 (item 10): same fallback chain as resolveBaseDir -
+			// the engine's base dir lands on the canonical path even when
+			// the storage provider misbehaves (a wrong root here is the
+			// in-game half of "no pak in valve")
+			String rootPath;
+			try {
+				File root = Environment.getExternalStorageDirectory();
+				rootPath = (root != null) ? root.getAbsolutePath() + "/xash"
+						: "/storage/emulated/0/xash";
+			} catch (Throwable t) {
+				rootPath = "/storage/emulated/0/xash";
+			}
 			nativeSetenv("XASH3D_BASEDIR", rootPath);
 		}
 

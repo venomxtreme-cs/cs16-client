@@ -154,11 +154,16 @@ final class UpdateChecker {
     /** the one release we need: tag, display name, notes, publish date */
     private static final class Release {
         final String tag, name, body, publishedAt;
-        Release( String tag, String name, String body, String publishedAt ) {
+        // A7 build 126 (item 11): the REAL .apk asset URL taken from the
+        // release JSON - null when the release carries no apk asset, then
+        // startDownload falls back to the constructed URL
+        final String apkUrl;
+        Release( String tag, String name, String body, String publishedAt, String apkUrl ) {
             this.tag = tag;
             this.name = name;
             this.body = body;
             this.publishedAt = publishedAt;
+            this.apkUrl = apkUrl;
         }
     }
 
@@ -206,10 +211,37 @@ final class UpdateChecker {
             if( best == null )
                 return null;
 
+            // A7 build 126 (item 11, user: "fix types update sometime in
+            // github are not same in update app"): take the ACTUAL .apk
+            // asset URL from the release - the download URL used to be
+            // built from the hard-coded APK_NAME and 404'd whenever a
+            // release published a differently named file. First .apk on
+            // the release wins, exact expected name stops the scan.
+            String apkUrl = null;
+            JSONArray assets = best.optJSONArray( "assets" );
+            if( assets != null ) {
+                for( int i = 0; i < assets.length(); i++ ) {
+                    JSONObject a = assets.optJSONObject( i );
+                    if( a == null )
+                        continue;
+                    String nm = a.optString( "name", "" );
+                    String ur = a.optString( "browser_download_url", "" );
+                    if( ur.isEmpty() || !nm.toLowerCase( Locale.ROOT ).endsWith( ".apk" ) )
+                        continue;
+                    if( apkUrl == null )
+                        apkUrl = ur;
+                    if( nm.equals( APK_NAME ) ) {
+                        apkUrl = ur;
+                        break;
+                    }
+                }
+            }
+
             return new Release( best.optString( "tag_name", "" ),
                     best.optString( "name", "" ),
                     best.optString( "body", "" ),
-                    best.optString( "published_at", "" ) );
+                    best.optString( "published_at", "" ),
+                    apkUrl );
         } finally {
             conn.disconnect();
         }
@@ -434,7 +466,7 @@ final class UpdateChecker {
                     handler.removeCallbacks( poller );
                     handler.postDelayed( poller, 400 );
                     registerInstallReceiver( activity );
-                    startDownload( activity, release.tag );
+                    startDownload( activity, release );
                 } else if( state[0] == STATE_DOWNLOADING ) {
                     // cancel: drop the partial download and return to idle
                     DownloadManager dm = (DownloadManager)
@@ -564,9 +596,16 @@ final class UpdateChecker {
     // download + hand the apk to the system installer
     // ------------------------------------------------------------------
 
-    private static void startDownload( final Activity activity, String tag ) {
-        String apkUrl = "https://github.com/venomxtreme-cs/cs16fresh/releases/download/"
-                + tag + "/" + APK_NAME;
+    private static void startDownload( final Activity activity, Release release ) {
+        String tag = release.tag;
+        // A7 build 126 (item 11): the actual asset URL from the release
+        // JSON - the hard-coded APK_NAME path 404'd whenever a release
+        // published a differently named apk (the "update types not same"
+        // field report). Constructed URL stays as the last resort.
+        String apkUrl = release.apkUrl;
+        if( apkUrl == null || apkUrl.isEmpty() )
+            apkUrl = "https://github.com/venomxtreme-cs/cs16fresh/releases/download/"
+                    + tag + "/" + APK_NAME;
 
         DownloadManager dm = (DownloadManager)
                 activity.getSystemService( Context.DOWNLOAD_SERVICE );

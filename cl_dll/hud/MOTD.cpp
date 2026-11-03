@@ -383,10 +383,29 @@ int CHudMOTD :: Draw( float fTime )
 		return 1;
 	}
 
+	// A7 build 126 (item 7, crash_log.txt: SIGSEGV faultaddr 0x0 in
+	// CHudMOTD::Draw+0x29c = the while(*ch) loop below): an empty or
+	// HTML-stripped-to-empty MOTD leaves CUtlString::m_pchString NULL
+	// (miniutl/utlstring.h: "could be NULL" on Access()) while
+	// MsgFunc_MOTD armed m_bShow anyway - reading address 0 killed the
+	// game. Hide instead of drawing; the one-shot line gives the next
+	// field report proof the server sent nothing worth showing.
+	char *ch = m_szMOTD.Access();
+	if( !ch || !*ch )
+	{
+		static bool s_empty_logged = false;
+		if( !s_empty_logged )
+		{
+			s_empty_logged = true;
+			ConsolePrint( "[A7] build126: empty MOTD from server - panel hidden\n" );
+		}
+		Reset();
+		return 1;
+	}
+
 	gHUD.m_iNoConsolePrint |= 1 << 1;
 	// find the top of where the MOTD should be drawn,  so the whole thing is centered in the screen
 	int ypos = (ScreenHeight - LINE_HEIGHT * m_iLines)/2; // shift it up slightly
-	char *ch = m_szMOTD.Access();
 	int xpos = (ScreenWidth - gHUD.GetCharWidth( 'M' ) * m_iMaxLength) / 2;
 	if( xpos < 30 ) xpos = 30;
 	int xmax = xpos + gHUD.GetCharWidth( 'M' ) * m_iMaxLength;
@@ -494,7 +513,11 @@ int CHudMOTD :: MsgFunc_MOTD( const char *pszName, int iSize, void *pbuf )
 			m_iMaxLength = length;
 			length = 0;
 		}
-		m_bShow = true;
+		// A7 build 126 (item 7): only arm the panel when there is
+		// something to draw - an empty / HTML-stripped-to-empty MOTD
+		// must not set m_bShow over a NULL CUtlString (Length() is
+		// NULL-safe: returns 0 when m_pchString is NULL)
+		m_bShow = m_szMOTD.Length() > 0;
 	}
 
 	return 1;

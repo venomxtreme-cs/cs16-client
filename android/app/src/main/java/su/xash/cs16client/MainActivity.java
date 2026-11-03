@@ -248,6 +248,25 @@ public class MainActivity extends Activity {
                                 mPermissionAsked = false;
                                 proceed();
                         } else {
+                                // A7 build 126 (item 9, user: "allow access
+                                // storage files for androids from 5 to 16"):
+                                // after a "don't ask again" denial the system
+                                // never shows the dialog again - a bare
+                                // requestPermissions() would deny forever and
+                                // this toast would repeat on every tap. Route
+                                // to the app settings page where the storage
+                                // switch lives (the same page the Android 11+
+                                // flow already opens).
+                                if( !shouldShowRequestPermissionRationale(
+                                        android.Manifest.permission.WRITE_EXTERNAL_STORAGE )) {
+                                        try {
+                                                startActivity( new Intent(
+                                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                        Uri.parse( "package:" + getPackageName() )));
+                                                return;
+                                        } catch( Exception ignored ) {
+                                        }
+                                }
                                 Toast.makeText( this,
                                         "Cannot install addons without storage access",
                                         Toast.LENGTH_LONG ).show();
@@ -267,7 +286,21 @@ public class MainActivity extends Activity {
         // ------------------------------------------------------------------
 
         private File getXashDir() {
-                return new File( Environment.getExternalStorageDirectory(), "xash" );
+                // A7 build 126 (item 10, user: "fix correct place for storage
+                // all devices for not getting errors"): the canonical shared
+                // storage root on every Android 5-16 device is
+                // /storage/emulated/0 - launcher, engine XASH3D_BASEDIR and
+                // the add-on installer must all agree on it.
+                // Environment.getExternalStorageDirectory() is the sanctioned
+                // way there; the literal path is the fallback for OEM builds
+                // where the storage provider misbehaves.
+                try {
+                        File root = Environment.getExternalStorageDirectory();
+                        if( root != null )
+                                return new File( root, "xash" );
+                } catch( Throwable ignored ) {
+                }
+                return new File( "/storage/emulated/0/xash" );
         }
 
         private void extractAddonsIfNeeded() throws Exception {
@@ -709,6 +742,12 @@ public class MainActivity extends Activity {
                 Intent launch = new Intent( this, su.xash.engine.XashActivity.class )
                         .putExtra( "gamedir", gamedir )
                         .putExtra( "gamelibdir", getApplicationInfo().nativeLibraryDir )
+                        // A7 build 126 (item 10): pin the base dir explicitly -
+                        // launcher and engine used to derive it independently
+                        // and any drift meant the engine looked for valve/ in
+                        // another root than the launcher scanned ("no pak in
+                        // valve" in game over files the launcher could see)
+                        .putExtra( "basedir", getXashDir().getAbsolutePath() )
                         .putExtra( "package", getPackageName() );
 
                 // build 113: argv comes from the Settings tab (the old
@@ -803,6 +842,35 @@ public class MainActivity extends Activity {
                                 if( dirHasPaks( c ))
                                         return c.getAbsolutePath().substring( rootPath.length() + 1 );
                                 queue.add( c );
+                        }
+                }
+
+                // A7 build 126 (item 8, user: "fix no pak in valve try to
+                // find"): nothing under the expected folder - look for a
+                // SAME-NAMED folder anywhere below the xash root before
+                // giving up. A zipped game extract often lands as
+                // xash/Half-Life/valve/... or xash/CS/cstrike/... (or with
+                // odd casing), which the top-level resolve never saw - the
+                // launcher toasted "no pak" while the files sat one folder
+                // over. The same-name rule keeps other games' pak folders
+                // out of the result.
+                java.util.ArrayDeque<File> q2 = new java.util.ArrayDeque<>();
+                java.util.HashSet<String> seen2 = new java.util.HashSet<>();
+                File xroot = getXashDir();
+                q2.add( xroot );
+                seen2.add( xroot.getAbsolutePath() );
+
+                while( !q2.isEmpty() ) {
+                        File dir = q2.poll();
+                        File[] children = dir.listFiles();
+                        if( children == null ) continue;
+
+                        for( File c : children ) {
+                                if( !c.isDirectory() || !seen2.add( c.getAbsolutePath() ))
+                                        continue;
+                                if( c.getName().equalsIgnoreCase( gamedir ) && dirHasPaks( c ))
+                                        return c.getAbsolutePath().substring( rootPath.length() + 1 );
+                                q2.add( c );
                         }
                 }
                 return null;
@@ -1160,10 +1228,20 @@ public class MainActivity extends Activity {
                 ensureZpxVaultSeeds();
                 // and custom module lines are back in place after any rewrite
                 ModuleInstaller.reapplyAll();
-                // build 115: the CS launcher decides the metamod bypass from
-                // ALL THREE CS switches (amxx/yapb/ebot) - its own gate, the
-                // HL/CZ cards never come through here
-                launchEngine( "cstrike", null,
+                // A7 build 126 (item 8): Counter-Strike joins the nested /
+                // wrong-case pak discovery the HL (build 115) and CZ (build
+                // 116) cards already had - "cstrike" was still passed blind,
+                // so a zipped extract (xash/cstrike/cstrike/pak0.pak or a
+                // "CS/" folder) reached the engine as an empty game dir and
+                // died in-game with the missing-pak error while the files
+                // were right there. Folder really absent: start anyway, the
+                // engine's own console explains what's missing (the same
+                // start-anyway rule as Half-Life / Condition Zero).
+                String pakDir = findGamePakDir( "cstrike" );
+                if( pakDir == null )
+                        pakDir = "cstrike";
+
+                launchEngine( pakDir, null,
                         !isAmxxOn() && !isYapbOn() && !isEbotOn() );
         }
 
