@@ -84,6 +84,10 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
         Log.v("SDL", "surfaceCreated()");
+        // A7 build 124: the surface is built on every resume/back-from-
+        // background too, so re-ask for the panel's top refresh rate here as
+        // well (surfaceChanged only follows when the size actually changes)
+        requestTopRefreshRate(holder);
         SDLActivity.onNativeSurfaceCreated();
     }
 
