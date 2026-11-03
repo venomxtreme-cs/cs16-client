@@ -100,6 +100,61 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
         SDLActivity.onNativeSurfaceDestroyed();
     }
 
+    // A7 build 123 (user: "now good but make it too high again"): the engine
+    // never blocks on the swap (vsync bypassed in code), but the panel still
+    // runs at whatever rate Android picked for us - and on a 90/120/144 Hz
+    // screen the compositor happily composites at the LOW default rate, so
+    // the delivered frame rate stays pinned to it no matter how fast the
+    // engine renders. Ask the display for its TOP supported refresh rate
+    // once, whenever the surface (re)appears: Surface.setFrameRate with
+    // CHANGE_FRAME_RATE_ALWAYS lets the compositor switch the panel to its
+    // highest mode. Cheap one-shot at surface setup, never per frame.
+    private void requestTopRefreshRate(SurfaceHolder holder) {
+        try {
+            if (Build.VERSION.SDK_INT < 31 /* Android 12 (S) */) {
+                return; // no Surface.setFrameRate(rate, compat, mode) overload before 31
+            }
+            if (mDisplay == null) {
+                return;
+            }
+
+            // can't take the highest of the panel modes without enumerating
+            // them; getRefreshRate() already reports the rate the display is
+            // currently running at, and after a full-screen game surface
+            // attaches Android normally runs the panel at its top mode. Try
+            // the modes list when it is available, else the active rate.
+            float want = 0.0f;
+            try {
+                java.util.List<Display.Mode> modes = mDisplay.getSupportedModes();
+                for (Display.Mode m : modes) {
+                    if (m.getRefreshRate() > want) {
+                        want = m.getRefreshRate();
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            if (want <= 0.0f) {
+                want = mDisplay.getRefreshRate();
+            }
+            if (want <= 0.0f) {
+                return;
+            }
+
+            if (!holder.getSurface().isValid()) {
+                return;
+            }
+
+            // Surface.setFrameRate(rate, compatibility, changeFrameRateStrategy)
+            holder.getSurface().setFrameRate(want,
+                    Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
+                    Surface.CHANGE_FRAME_RATE_ALWAYS);
+            Log.d("SDL", "build123: requested frame rate " + want + " Hz on the game surface");
+        } catch (Throwable t) {
+            // never let a frame-rate hint take the video path down
+            Log.w("SDL", "build123: requested frame rate failed: " + t);
+        }
+    }
+
     // Called when the surface is resized
     @Override
     public void surfaceChanged(SurfaceHolder holder,
@@ -109,6 +164,8 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
         if (SDLActivity.mSingleton == null) {
             return;
         }
+
+        requestTopRefreshRate(holder);
 
         mWidth = width;
         mHeight = height;
