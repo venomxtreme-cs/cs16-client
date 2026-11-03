@@ -80,6 +80,25 @@ public class MainActivity extends Activity {
         private static final java.util.concurrent.atomic.AtomicBoolean mInstallRunning =
                 new java.util.concurrent.atomic.AtomicBoolean( false );
 
+        // A7 build 128 (round 129, user: "fix launcher it too late to start
+        // game"): the PLAY tap used to run its whole prep chain ON THE UI
+        // THREAD before startActivity() - addon marker checks, the
+        // plugins.ini/modules.ini rewrites and the depth-5 pak search that
+        // walks the xash tree twice (one listFiles() per directory through
+        // Android FUSE) - so taps sat frozen. The same chain now runs ONCE,
+        // off the UI thread, on the install thread above ("warm"), and the
+        // tap only reads the results from here.
+        private volatile boolean mLaunchPrepDone = false;
+        private final java.util.HashMap<String, String> mPakDirCache =
+                new java.util.HashMap<String, String>();
+
+        // A tap that lands while the bundle install is still running (the
+        // first launch after every app update re-extracts it) is remembered
+        // here and fired the moment the install thread releases its gate -
+        // a pressed PLAY never dies quietly.
+        private volatile String mPendingLaunchGame = null;
+        private volatile long mPendingLaunchTapMs = -1;
+
         @Override
         protected void onCreate( Bundle savedInstanceState ) {
                 super.onCreate( savedInstanceState );
@@ -159,10 +178,13 @@ public class MainActivity extends Activity {
                 if( !mInstallRunning.compareAndSet( false, true ) )
                         return;
 
-                // the menu just inflated a fresh, enabled play button -
-                // keep it gated while this install is in flight (the
-                // finally block below re-enables it when it finishes)
-                setPlayButtonEnabled( false );
+                // A7 build 128 (round 129): the PLAY button is NO LONGER disabled while
+                // the install runs. A disabled button just sits there ignoring
+                // taps ("launcher too late to start game" - the first launch
+                // after an update re-extracts the bundle, so the PLAY button
+                // was dead for that whole time). The button is pressable now and the
+                // tap is QUEUED by beginLaunch() instead - it fires the moment
+                // this install finishes.
 
                 new Thread( new Runnable() {
                         @Override
@@ -192,6 +214,17 @@ public class MainActivity extends Activity {
                                 } finally {
                                         Log.i( TAG, "[A7] build127: background install took " + (android.os.SystemClock.elapsedRealtime() - startMs) + " ms" );
 
+                                        // A7 build 128 (round 129): still on the
+                                        // install thread, BEFORE the gate opens -
+                                        // warm the launch path (the pak search over
+                                        // the xash tree) so the first PLAY tap is a
+                                        // cache hit instead of a filesystem walk.
+                                        try {
+                                                warmLaunchCache();
+                                        } catch( Throwable t ) {
+                                                Log.w( TAG, "launch warm failed", t );
+                                        }
+
                                         // hand the gate back to the user and re-evaluate
                                         // the engine/addons status lines BEFORE releasing
                                         // mInstallRunning - otherwise a late proceed() sees
@@ -200,6 +233,10 @@ public class MainActivity extends Activity {
                                         // finish it
                                         setPlayButtonEnabled( true );
                                         mInstallRunning.set( false );
+
+                                        // A tap arrived while the bundle was installing:
+                                        // fire it now that the engine can start.
+                                        firePendingLaunch();
                                 }
                         }
                 }, "addons-install" ).start();
@@ -222,6 +259,169 @@ public class MainActivity extends Activity {
 
                                 if( enable )
                                         refreshMenuStatus();
+                        }
+                } );
+        }
+
+        // ------------------------------------------------------------------
+        // A7 build 128 (round 129, user: "fix launcher it too late to start
+        // game"): warm launch path + tap dispatch.
+        //
+        // Before this build every PLAY tap ran its prep ON THE UI THREAD and
+        // only then called startActivity():
+        //   - addon marker/version checks + plugins.ini + modules.ini writes
+        //   - the depth-5 pak search: TWO full-tree walks over the xash root,
+        //     one listFiles() per directory through Android FUSE (the same
+        //     file system where a single stat costs milliseconds)
+        // so the tap visibly froze the launcher before the engine appeared.
+        // The warm pass below does exactly that work ONCE, in the background,
+        // while the menu is still coming up; after it, the tap path is a
+        // HashMap read + startActivity().
+        // ------------------------------------------------------------------
+
+        private void warmLaunchCache() {
+                final long t0 = android.os.SystemClock.uptimeMillis();
+
+                String cs = cachedPakDir( "cstrike" );
+                String hl = cachedPakDir( "valve" );
+                String cz = cachedPakDir( "czero" );
+
+                mLaunchPrepDone = true;
+                Log.i( TAG, "[A7] build128: launch warm took "
+                        + ( android.os.SystemClock.uptimeMillis() - t0 )
+                        + " ms (pak cstrike=" + cs + ", valve=" + hl
+                        + ", czero=" + cz + ")" );
+        }
+
+        // cached form of findGamePakDir(): the walk is the expensive part of
+        // the tap path, so the answer is remembered and only re-validated
+        // cheaply on later taps (the folder may still be moved/deleted while
+        // the launcher sits open, which is what invalidates the entry).
+        private String cachedPakDir( String gamedir ) {
+                synchronized( mPakDirCache ) {
+                        String p = mPakDirCache.get( gamedir );
+                        if( p != null ) {
+                                File f = new File( getXashDir(), p );
+                                if( f.isDirectory() && dirHasPaks( f ))
+                                        return p;
+                                mPakDirCache.remove( gamedir );
+                        }
+                }
+
+                String found = findGamePakDir( gamedir );
+                synchronized( mPakDirCache ) {
+                        // null is stored too: "not found yet" must not make the
+                        // next tap walk the whole tree again either
+                        mPakDirCache.put( gamedir, found );
+                }
+                return found;
+        }
+
+        /**
+         * Single entry point for the three game cards. Takes storage-checked
+         * care of the three states a tap can arrive in: bundle install still
+         * running (queued), warm finished (instant), warm not finished yet
+         * (prep runs OFF-thread, then starts) - the UI thread never walks
+         * the filesystem.
+         */
+        private void beginLaunch( final String game, final long tapMs ) {
+                if( mInstallRunning.get()) {
+                        // the first launch after every update re-extracts the
+                        // bundle; a tap during that window used to hit a
+                        // DISABLED button and die silently
+                        mPendingLaunchGame = game;
+                        mPendingLaunchTapMs = tapMs;
+                        Log.i( TAG, "[A7] build128: tap queued - addons still installing (game=" + game + ")" );
+                        Toast.makeText( this,
+                                "Installing game add-ons - starting the game as soon as it is ready",
+                                Toast.LENGTH_SHORT ).show();
+                        return;
+                }
+
+                if( mLaunchPrepDone ) {
+                        startGameNow( game, tapMs );
+                        return;
+                }
+
+                // rare: the tap beat the warm thread. Finish the prep on a
+                // worker thread, then start from the UI thread - still no
+                // freeze, just the same wait as the old code had.
+                new Thread( new Runnable() {
+                        @Override
+                        public void run() {
+                                try {
+                                        extractAddonsIfNeeded();
+                                } catch( Throwable t ) {
+                                        Log.w( TAG, "on-demand launch prep failed", t );
+                                }
+                                try {
+                                        ensureZpxVaultSeeds();
+                                } catch( Throwable ignored ) {
+                                }
+                                try {
+                                        warmLaunchCache();
+                                } catch( Throwable t ) {
+                                        Log.w( TAG, "on-demand warm failed", t );
+                                }
+                                runOnUiThread( new Runnable() {
+                                        @Override
+                                        public void run() {
+                                                startGameNow( game, tapMs );
+                                        }
+                                });
+                        }
+                }, "launch-prep" ).start();
+        }
+
+        private void startGameNow( String game, long tapMs ) {
+                if( "hl".equals( game ) || "valve".equals( game ))
+                        startHalfLife( tapMs );
+                else if( "cz".equals( game ))
+                        startCZero( tapMs );
+                else
+                        startCounterStrike( tapMs );
+        }
+
+        private void startCounterStrike( long tapMs ) {
+                // A7 build 128: kernels of the old onLaunchPressed() - the prep
+                // (addon extract/patch/seeds, pak search) already ran in the
+                // warm pass, so this is what a tap actually costs now.
+                // A7 build 126 (item 8): Counter-Strike joins the nested /
+                // wrong-case pak discovery the HL (build 115) and CZ (build
+                // 116) cards already had - "cstrike" passed blind reached the
+                // engine as an empty game dir for a zipped
+                // xash/cstrike/cstrike/pak0.pak (or a "CS/" folder). Folder
+                // really absent: start anyway, the engine's own console
+                // explains what's missing (same start-anyway rule as HL/CZ).
+                String pakDir = cachedPakDir( "cstrike" );
+                if( pakDir == null )
+                        pakDir = "cstrike";
+
+                launchEngine( pakDir, null,
+                        !isAmxxOn() && !isYapbOn() && !isEbotOn(), tapMs );
+        }
+
+        // A tap that arrived while the bundle install was running - fired by
+        // the install thread once its gate is open.
+        private void firePendingLaunch() {
+                final String game = mPendingLaunchGame;
+                final long tapMs = mPendingLaunchTapMs;
+                if( game == null )
+                        return;
+
+                mPendingLaunchGame = null;
+                mPendingLaunchTapMs = -1;
+                Log.i( TAG, "[A7] build128: queued launch fired "
+                        + ( android.os.SystemClock.uptimeMillis() - tapMs )
+                        + " ms after tap (game=" + game + ")" );
+
+                // re-enter through beginLaunch(): by now the install thread has
+                // released the gate, so this takes the warm/fast path (or the
+                // off-thread prep as the safety net)
+                runOnUiThread( new Runnable() {
+                        @Override
+                        public void run() {
+                                beginLaunch( game, tapMs );
                         }
                 } );
         }
@@ -814,7 +1014,7 @@ public class MainActivity extends Activity {
         // game's back button returns HERE instead of exiting the whole app
         // (the 114 combo left XashActivity as the only activity: back = home
         // screen + recents re-entry hit a dead GL window).
-        private void launchEngine( String gamedir, String extraArgs, boolean disableAmxx ) {
+        private void launchEngine( String gamedir, String extraArgs, boolean disableAmxx, long tapMs ) {
                 Intent launch = new Intent( this, su.xash.engine.XashActivity.class )
                         .putExtra( "gamedir", gamedir )
                         .putExtra( "gamelibdir", getApplicationInfo().nativeLibraryDir )
@@ -848,7 +1048,28 @@ public class MainActivity extends Activity {
                 if( disableAmxx )
                         launch.putExtra( "env", new String[]{ "XASH3D_DISABLE_AMXX", "1" } );
 
+                // A7 build 128 (round 129): stamp the tap - XashActivity reports
+                // what tap -> engine activity creation actually cost, so the
+                // remaining wait can be named instead of guessed
+                if( tapMs > 0 )
+                        launch.putExtra( "a7_tap", tapMs );
+
+                // A7 build 128: the tap -> startActivity gap (0 ms is the goal:
+                // everything the prep chain used to do here already ran in the
+                // warm pass)
+                if( tapMs > 0 )
+                        Log.i( TAG, "[A7] build128: tap to startActivity "
+                                + ( android.os.SystemClock.uptimeMillis() - tapMs )
+                                + " ms (game=" + gamedir + ", warm=" + mLaunchPrepDone + ")" );
+
                 startActivity( launch );
+                // A7 build 128: no launcher -> engine cross-fade. GoldSource
+                // just starts; the default window animation added a visible
+                // beat before the GL surface appeared.
+                try {
+                        overridePendingTransition( 0, 0 );
+                } catch( Throwable ignored ) {
+                }
                 // deliberately NO finish(): back in the game pops to this menu
         }
 
@@ -963,13 +1184,22 @@ public class MainActivity extends Activity {
                         return;
                 }
 
+                // A7 build 128 (round 129): no prep on this thread - just name
+                // what to launch and the tap timestamp.
+                beginLaunch( "hl", android.os.SystemClock.uptimeMillis() );
+        }
+
+        // A7 build 128: the old onHalfLifePressed() body, unchanged apart
+        // from the pak lookup (cachedPakDir instead of the full-tree
+        // findGamePakDir walk - that already ran in the warm pass).
+        private void startHalfLife( long tapMs ) {
                 // build 116: only a MISSING valve folder blocks the start now. The paks
         // are searched anywhere below it (nested folders, wrong-case folder
         // name) and the engine gets the gamedir where they actually are -
         // the old top-level-only check refused to start even when the data
         // sat right there (device report: "pak didn't found ... folder
         // already in xash").
-                String pakDir = findGamePakDir( "valve" );
+                String pakDir = cachedPakDir( "valve" );
                 if( pakDir == null ) {
                         if( resolveGameDir( "valve" ) == null ) {
                                 Toast.makeText( this, R.string.menu_hl_missing,
@@ -998,7 +1228,7 @@ public class MainActivity extends Activity {
                 android.content.SharedPreferences sp = getPreferences( MODE_PRIVATE );
                 boolean hlAmxx = sp.getBoolean( "enable_hl_amxx", true );
 
-                launchEngine( pakDir, "-clientlib " + clientLib, !hlAmxx );
+                launchEngine( pakDir, "-clientlib " + clientLib, !hlAmxx, tapMs );
         }
 
         // build 115: Condition Zero joins the chooser inside the same app -
@@ -1015,7 +1245,13 @@ public class MainActivity extends Activity {
                         return;
                 }
 
-                String pakDir = findGamePakDir( "czero" );
+                // A7 build 128 (round 129): prep-free tap, see beginLaunch().
+                beginLaunch( "cz", android.os.SystemClock.uptimeMillis() );
+        }
+
+        // A7 build 128: the old onCZeroPressed() body, pak lookup cached.
+        private void startCZero( long tapMs ) {
+                String pakDir = cachedPakDir( "czero" );
                 if( pakDir == null ) {
                         if( resolveGameDir( "czero" ) == null ) {
                                 Toast.makeText( this, R.string.menu_cz_missing,
@@ -1027,7 +1263,8 @@ public class MainActivity extends Activity {
                         pakDir = "czero";
                 }
 
-                launchEngine( pakDir, null, !isAmxxOn() && !isYapbOn() && !isEbotOn() );
+                launchEngine( pakDir, null,
+                        !isAmxxOn() && !isYapbOn() && !isEbotOn(), tapMs );
         }
 
         // ------------------------------------------------------------------
@@ -1292,33 +1529,16 @@ public class MainActivity extends Activity {
                         return;
                 }
 
-                try {
-                        extractAddonsIfNeeded();
-                } catch( Throwable t ) {
-                        Log.w( TAG, "addons extraction failed", t );
-                        logInstallError( "cstrike addons (cs16client)", t );
-                }
-                patchPluginsIni();
-                // a pack installed after app start still gets its seeds
-                // before the engine runs
-                ensureZpxVaultSeeds();
-                // and custom module lines are back in place after any rewrite
-                ModuleInstaller.reapplyAll();
-                // A7 build 126 (item 8): Counter-Strike joins the nested /
-                // wrong-case pak discovery the HL (build 115) and CZ (build
-                // 116) cards already had - "cstrike" was still passed blind,
-                // so a zipped extract (xash/cstrike/cstrike/pak0.pak or a
-                // "CS/" folder) reached the engine as an empty game dir and
-                // died in-game with the missing-pak error while the files
-                // were right there. Folder really absent: start anyway, the
-                // engine's own console explains what's missing (the same
-                // start-anyway rule as Half-Life / Condition Zero).
-                String pakDir = findGamePakDir( "cstrike" );
-                if( pakDir == null )
-                        pakDir = "cstrike";
-
-                launchEngine( pakDir, null,
-                        !isAmxxOn() && !isYapbOn() && !isEbotOn() );
+                // A7 build 128 (round 129, user: "fix launcher it too late to
+                // start game"): this used to run extractAddonsIfNeeded(),
+                // patchPluginsIni(), ensureZpxVaultSeeds(),
+                // ModuleInstaller.reapplyAll() AND the depth-5 pak search
+                // right here on the UI thread before startActivity() - every
+                // one of them over Android FUSE - so the tap froze the menu
+                // first. All of it now runs on the install thread above
+                // (warmLaunchCache()) while the menu comes up; a tap is just
+                // "go".
+                beginLaunch( "cs", android.os.SystemClock.uptimeMillis() );
         }
 
         private void refreshMenuStatus() {

@@ -79,6 +79,18 @@ public class XashActivity extends SDLActivity {
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
+		// A7 build 128 (round 129, user: "fix launcher it too late to start
+		// game"): the launcher stamps the PLAY tap into a7_tap - report what
+		// tap -> engine activity creation actually cost, so the remaining
+		// wait can be measured instead of guessed (scan112 dex marker)
+		try {
+			long tapMs = getIntent() != null ? getIntent().getLongExtra("a7_tap", -1) : -1;
+			if (tapMs > 0)
+				Log.i(TAG, "[A7] build128: tap to engine onCreate "
+						+ (android.os.SystemClock.uptimeMillis() - tapMs) + " ms");
+		} catch (Throwable ignored) {
+		}
+
 		// refresh the bundled Half-Life add-ons BEFORE the engine starts: the
 		// on-disk valve/addons modules must match this APK (a stale sqlite .so
 		// crashed on shutdown and nothing else ever wrote the bundle to disk).
