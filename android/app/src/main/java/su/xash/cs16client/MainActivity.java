@@ -73,6 +73,13 @@ public class MainActivity extends Activity {
 
         private boolean mPermissionAsked = false;
 
+        // A7 build 127 (round 128): guards the background addons install.
+        // onCreate(), onResume() and onRequestPermissionsResult() all funnel
+        // into proceed(), so without this gate the second entry point would
+        // start a second zip walk + sha256 pass over the first one.
+        private static final java.util.concurrent.atomic.AtomicBoolean mInstallRunning =
+                new java.util.concurrent.atomic.AtomicBoolean( false );
+
         @Override
         protected void onCreate( Bundle savedInstanceState ) {
                 super.onCreate( savedInstanceState );
@@ -135,19 +142,88 @@ public class MainActivity extends Activity {
         private void proceed() {
                 syncSwitchPrefsWithMarkers();
 
-                try {
-                        extractAddonsIfNeeded();
-                } catch( Throwable t ) {
-                        Log.w( TAG, "addons extraction failed", t );
-                        Toast.makeText( this, "Addons installation error: " + t.getMessage(), Toast.LENGTH_LONG ).show();
-                        logInstallError( "cstrike addons (cs16client)", t );
-                }
-
-                // the fvault seeds ride with no zip; they appear only while
-                // the Zombie Plague X pack is installed and enabled
-                ensureZpxVaultSeeds();
-
+                // A7 build 127 (round 128): showMenu() FIRST. The install used
+                // to run here on the UI thread BEFORE the menu was inflated -
+                // a full zip walk + a sha256 per file over Android FUSE that
+                // re-runs on every version bump - so the user stared at a
+                // blank/frozen launcher on start ("fix launch ... too late like
+                // freeze"). The menu is revealed immediately now, the heavy
+                // work happens off the UI thread below.
                 showMenu();
+
+                // onCreate() + onResume() (and onRequestPermissionsResult())
+                // all land here: only the first caller may start the install.
+                // The play-button gate goes AFTER the guard: a late second
+                // caller must not disable the button and then return without
+                // anyone left to re-enable it.
+                if( !mInstallRunning.compareAndSet( false, true ) )
+                        return;
+
+                // the menu just inflated a fresh, enabled play button -
+                // keep it gated while this install is in flight (the
+                // finally block below re-enables it when it finishes)
+                setPlayButtonEnabled( false );
+
+                new Thread( new Runnable() {
+                        @Override
+                        public void run() {
+                                final long startMs = android.os.SystemClock.elapsedRealtime();
+
+                                try {
+                                        try {
+                                                extractAddonsIfNeeded();
+                                        } catch( Throwable t ) {
+                                                Log.w( TAG, "addons extraction failed", t );
+                                                logInstallError( "cstrike addons (cs16client)", t );
+                                                // Toast from a non-UI thread throws
+                                                final String msg = "Addons installation error: " + t.getMessage();
+                                                runOnUiThread( new Runnable() {
+                                                        @Override
+                                                        public void run() {
+                                                                Toast.makeText( MainActivity.this,
+                                                                        msg, Toast.LENGTH_LONG ).show();
+                                                        }
+                                                } );
+                                        }
+
+                                        // the fvault seeds ride with no zip; they appear only
+                                        // while the Zombie Plague X pack is installed and enabled
+                                        ensureZpxVaultSeeds();
+                                } finally {
+                                        Log.i( TAG, "[A7] build127: background install took " + (android.os.SystemClock.elapsedRealtime() - startMs) + " ms" );
+
+                                        // hand the gate back to the user and re-evaluate
+                                        // the engine/addons status lines BEFORE releasing
+                                        // mInstallRunning - otherwise a late proceed() sees
+                                        // "idle" while this enable is still queued and the
+                                        // button is re-disabled with no install left to
+                                        // finish it
+                                        setPlayButtonEnabled( true );
+                                        mInstallRunning.set( false );
+                                }
+                        }
+                }, "addons-install" ).start();
+        }
+
+        // ------------------------------------------------------------------
+        // A7 build 127 (round 128): play-button gate for the background
+        // install. Everything runs inside runOnUiThread() so the install
+        // thread never touches a view directly (and refreshMenuStatus() is
+        // re-run whenever the button is handed back).
+        // ------------------------------------------------------------------
+
+        private void setPlayButtonEnabled( final boolean enable ) {
+                runOnUiThread( new Runnable() {
+                        @Override
+                        public void run() {
+                                Button play = (Button) findViewById( R.id.menu_launch );
+                                if( play != null )
+                                        play.setEnabled( enable );
+
+                                if( enable )
+                                        refreshMenuStatus();
+                        }
+                } );
         }
 
         // ------------------------------------------------------------------

@@ -104,22 +104,13 @@
             android:theme="@android:style/Theme.NoTitleBar"
             android:exported="false" />
 
-                <activity
-                        android:name=".CZeroActivity"
-                        android:icon="@mipmap/ic_launcher_cz"
-                        android:label="CSCZClient"
-                        android:roundIcon="@mipmap/ic_launcher_cz"
-                        android:exported="true">
-                        <intent-filter>
-                                <action android:name="android.intent.action.MAIN" />
-
-                                <category android:name="android.intent.category.LAUNCHER" />
-                        </intent-filter>
-
-                        <intent-filter>
-                                <action android:name="su.xash.engine.MOD" />
-                        </intent-filter>
-                </activity>
+                <!-- A7 build 127 (round 128, item 3): the second home-screen
+             launcher (".CZeroActivity" / "CSCZClient") is GONE - Condition
+             Zero is reached from the chooser inside this one app
+             (MainActivity.onCZeroPressed -> launchEngine(), gamedir=czero),
+             so a duplicate CZ icon only confused people
+             (user: "remove second launcher app conditions zero we already
+             added in app cs16fresh"). -->
 
         <!-- result of the framework PackageInstaller session used by the
              launcher's forced update flow -->
