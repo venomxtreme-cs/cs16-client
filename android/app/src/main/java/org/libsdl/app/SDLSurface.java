@@ -125,10 +125,13 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
             // the modes list when it is available, else the active rate.
             float want = 0.0f;
             try {
-                java.util.List<Display.Mode> modes = mDisplay.getSupportedModes();
-                for (Display.Mode m : modes) {
-                    if (m.getRefreshRate() > want) {
-                        want = m.getRefreshRate();
+                // getSupportedModes() hands back the panel's modes array
+                Display.Mode[] modes = mDisplay.getSupportedModes();
+                if (modes != null) {
+                    for (Display.Mode m : modes) {
+                        if (m != null && m.getRefreshRate() > want) {
+                            want = m.getRefreshRate();
+                        }
                     }
                 }
             } catch (Throwable ignored) {
