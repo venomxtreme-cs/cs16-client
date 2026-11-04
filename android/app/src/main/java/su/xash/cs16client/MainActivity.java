@@ -787,6 +787,20 @@ public class MainActivity extends Activity {
                 if( rel.endsWith( "resource/GameMenu.res" ))
                         return true;
 
+                // the GameUI localization: every menu label resolves through
+                // L() against resource/*_english.txt at startup, and a stale
+                // disk copy inserts EMPTY values which render as nothing at
+                // all - the round-130 "menu text is blank" report. Shipped
+                // app assets, never user-editable data: always refreshed,
+                // even for a disk copy the manifest never recorded (the path
+                // below would keep that one forever).
+                if( rel.endsWith( "_english.txt" ))
+                {
+                        if( outFile.isFile() )
+                                Log.i( TAG, "[A7] build129: refreshing shipped localization " + rel );
+                        return true;
+                }
+
                 // the reinstall button resets everything bundled to stock,
                 // configs included: it is the one way back to a stock bundle
                 if( factoryReset )
