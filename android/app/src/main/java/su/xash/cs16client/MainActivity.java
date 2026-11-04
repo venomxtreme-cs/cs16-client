@@ -769,6 +769,20 @@ public class MainActivity extends Activity {
                 if( rel.endsWith( "gfx/shell/splash.bmp" ))
                         return true;
 
+                // the GameUI palette: UI_ApplyCustomColors() parses
+                // gfx/shell/colors.lst once at UI_Init and is the only thing
+                // that repaints the menu away from the coded defaults (the
+                // round-131 screenshots show the rows drawn ORANGE) - so a
+                // stale on-disk file wins over everything we fixed in code.
+                // Shipped app art, never user data: always refreshed even
+                // for a disk copy the manifest never recorded.
+                if( rel.endsWith( "gfx/shell/colors.lst" ))
+                {
+                        if( outFile.isFile() )
+                                Log.i( TAG, "[A7] build130: refreshing shipped colors.lst " + rel );
+                        return true;
+                }
+
                 // the real CS 1.6 menu collage + logo (video reference):
                 // ship resource/BackgroundLayout.txt, the 1280x720 tiles
                 // and resource/game_menu.tga, and let them replace whatever
