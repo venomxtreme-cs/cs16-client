@@ -40,6 +40,7 @@ extern cvar_t cv_bot_difficulty;
 extern cvar_t cv_bot_debug;
 extern cvar_t cv_bot_quicksave;
 extern cvar_t cv_bot_quota;
+extern cvar_t cv_bot_add_allowed; // A7 build 135: menu "Include CPU players" master gate
 extern cvar_t cv_bot_prefix;
 extern cvar_t cv_bot_allow_rogues;
 extern cvar_t cv_bot_allow_pistols;

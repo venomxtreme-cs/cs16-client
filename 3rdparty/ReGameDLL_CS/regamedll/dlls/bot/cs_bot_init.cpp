@@ -40,6 +40,14 @@ cvar_t cv_bot_difficulty             = { "bot_difficulty", "0", FCVAR_SERVER, 0.
 cvar_t cv_bot_debug                  = { "bot_debug", "0", FCVAR_SERVER, 0.0f, nullptr };
 cvar_t cv_bot_quicksave              = { "bot_quicksave", "0", FCVAR_SERVER, 0.0f, nullptr };
 cvar_t cv_bot_quota                  = { "bot_quota", "0", FCVAR_SERVER, 0.0f, nullptr };
+// A7 build 135 (item 8, user: "Include CPU players off must really keep
+// bots out"): this is the menu's master gate. `bot_quota` alone was NOT
+// enough - the console-only `bot_add` (and its bot_add_t/bot_add_ct
+// variants) RAISE bot_quota behind our back (CCSBotManager::BotAddCommand),
+// so a stale quota or any script call forced CPU players right back in
+// after the box was unticked. With this cvar at 0 the add command is
+// refused and quota maintenance clamps to 0, regardless of bot_quota.
+cvar_t cv_bot_add_allowed            = { "bot_add_allowed", "1", FCVAR_SERVER, 0.0f, nullptr };
 cvar_t cv_bot_prefix                 = { "bot_prefix", "", FCVAR_SERVER, 0.0f, nullptr };
 cvar_t cv_bot_allow_rogues           = { "bot_allow_rogues", "1", FCVAR_SERVER, 0.0f, nullptr };
 cvar_t cv_bot_allow_pistols          = { "bot_allow_pistols", "1", FCVAR_SERVER, 0.0f, nullptr };
@@ -107,6 +115,8 @@ void Bot_RegisterCVars()
 	CVAR_REGISTER(&cv_bot_debug);
 	CVAR_REGISTER(&cv_bot_quicksave);
 	CVAR_REGISTER(&cv_bot_quota);
+	// A7 build 135 (item 8): the menu's "Include CPU players" gate
+	CVAR_REGISTER(&cv_bot_add_allowed);
 
 #ifndef REGAMEDLL_ADD
 	CVAR_REGISTER(&cv_bot_quota_match);

@@ -788,6 +788,21 @@ BOOL CCSBotManager::ClientCommand(CBasePlayer *pPlayer, const char *pcmd)
 // Process the "bot_add" console command
 bool CCSBotManager::BotAddCommand(BotProfileTeamType team, bool isFromConsole)
 {
+	// A7 build 135 (item 8, user: "Include CPU players off must really keep
+	// bots out"): boss gate. The menu's untick used to be only bot_quota 0,
+	// but this very command RAISES bot_quota when called from the console -
+	// so a stale quota, a config exec or any script could force CPU players
+	// straight back in. bot_add_allowed 0 closes the door here, for console
+	// callers and for quota maintenance alike.
+	if (cv_bot_add_allowed.value <= 0.0f)
+	{
+		if (isFromConsole)
+		{
+			CONSOLE_ECHO("bot_add: CPU players are disabled (bot_add_allowed 0).\n");
+		}
+		return false;
+	}
+
 	// dont allow bots to join if the Navigation Area is being generated
 	if (m_isLearningMap)
 		return false;
@@ -898,6 +913,12 @@ void CCSBotManager::MaintainBotQuota()
 		return;
 
 	int desiredBotCount = int(cv_bot_quota.value);
+
+	// A7 build 135 (item 8): gate off = no bots, whatever bot_quota says
+	// (a config or an old script may still carry a stale non-zero value)
+	if (cv_bot_add_allowed.value <= 0.0f)
+		desiredBotCount = 0;
+
 	int occupiedBotSlots = UTIL_BotsInGame();
 
 	bool isRoundInProgress = false;
