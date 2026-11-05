@@ -79,8 +79,125 @@ public class SettingsActivity extends Activity {
 				}
 			});
 
+		bindSteamViews();
 		refreshLogStatus();
 		refreshAbout();
+		refreshSteam();
+	}
+
+	@Override
+	protected void onResume() {
+		super.onResume();
+		// A7 build 136 (item 1): coming back from the Steam sign-in screen
+		// must show the new state right away (signed in / signed out)
+		refreshSteam();
+	}
+
+	// ------------------------------------------------------------------
+	// A7 build 136 (item 1): the Steam account card. Reads the same file
+	// the sign-in screen writes ( <basedir>/<gamedir>/friends/steamid.txt )
+	// and shows "Steam ID: ..." with the Steam logo; tapping the card or
+	// the button opens su.xash.engine.SteamFriendsActivity (the WebView
+	// login/friends screen) with the pinned base dir + gamedir, exactly
+	// like the engine's "steamfriends" command does in-game.
+	// ------------------------------------------------------------------
+	private TextView mSteamIdLine;
+
+	private void refreshSteam() {
+		mSteamIdLine = (TextView) findViewById( R.id.settings_steam_id );
+		TextView title = (TextView) findViewById( R.id.settings_steam_title );
+
+		String id = readSteamId();
+
+		if( id.length() > 0 ) {
+			title.setText( R.string.settings_steam_signed );
+			mSteamIdLine.setText( "Steam ID: " + id );
+		} else {
+			title.setText( R.string.settings_steam_not_signed );
+			mSteamIdLine.setText( R.string.settings_steam_hint );
+		}
+
+		android.util.Log.i( "Settings",
+			"[A7] build136: settings steam card " + ( id.length() > 0 ? ("id " + id) : "not signed in" ));
+	}
+
+	private View.OnClickListener steamOpenListener = new View.OnClickListener() {
+		@Override
+		public void onClick( View v ) {
+			openSteamScreen();
+		}
+	};
+
+	// wired from onCreate after the views exist (the card + the button
+	// both open the same screen, and the listener hooks are attached in
+	// onCreate so the layout ids are guaranteed present)
+	void bindSteamViews() {
+		findViewById( R.id.settings_steam_card ).setOnClickListener( steamOpenListener );
+		findViewById( R.id.settings_steam_open ).setOnClickListener( steamOpenListener );
+	}
+
+	private void openSteamScreen() {
+		try {
+			int game = getSharedPreferences( "MainActivity", MODE_PRIVATE )
+				.getInt( "selected_game", 0 );
+			String gamedir = game == 1 ? "valve" : ( game == 2 ? "czero" : "cstrike" );
+
+			File root;
+			try {
+				root = android.os.Environment.getExternalStorageDirectory();
+				if( root == null )
+					throw new IllegalStateException();
+			} catch( Throwable t ) {
+				root = new File( "/storage/emulated/0" );
+			}
+			File xash = new File( root, "xash" );
+
+			Intent i = new Intent( this, su.xash.engine.SteamFriendsActivity.class )
+				.putExtra( "basedir", xash.getAbsolutePath() )
+				.putExtra( "gamedir", gamedir );
+			startActivity( i );
+		} catch( Throwable t ) {
+			// the sign-in screen was missing from this app's manifest before
+			// build 136 - report instead of dying silently
+			android.util.Log.e( "Settings",
+				"[A7] build136: steam screen failed to open: " + t );
+			Toast.makeText( this, "Steam sign-in screen unavailable", Toast.LENGTH_SHORT ).show();
+		}
+	}
+
+	// friends/steamid.txt under the currently selected game dir, trimmed
+	private String readSteamId() {
+		try {
+			int game = getSharedPreferences( "MainActivity", MODE_PRIVATE )
+				.getInt( "selected_game", 0 );
+			String gamedir = game == 1 ? "valve" : ( game == 2 ? "czero" : "cstrike" );
+
+			File xash;
+			try {
+				xash = new File( android.os.Environment.getExternalStorageDirectory(), "xash" );
+			} catch( Throwable t ) {
+				xash = new File( "/storage/emulated/0/xash" );
+			}
+
+			File f = new File( new File( xash, gamedir ), "friends/steamid.txt" );
+			if( !f.isFile())
+				return "";
+
+			// plain stream read: works on every API level this app supports
+			java.io.FileInputStream in = new java.io.FileInputStream( f );
+			try {
+				java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+				byte[] chunk = new byte[256];
+				int n;
+				while(( n = in.read( chunk )) > 0 )
+					out.write( chunk, 0, n );
+				return new String( out.toByteArray(), "UTF-8" ).trim();
+			} finally {
+				in.close();
+			}
+		} catch( Throwable t ) {
+			return "";
+		}
 	}
 
 	private void refreshLogStatus() {

@@ -230,6 +230,87 @@
 
             </LinearLayout>
 
+            <!-- A7 build 136 (item 1): Steam account card - shows the
+                 connected SteamID64 with the Steam logo, tap opens the
+                 sign-in/friends WebView (su.xash.engine.SteamFriendsActivity) -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:letterSpacing="0.14"
+                android:text="@string/settings_section_steam"
+                android:textColor="#7E8CA0"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:id="@+id/settings_steam_card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/card_dark"
+                android:clickable="true"
+                android:focusable="true"
+                android:orientation="vertical"
+                android:paddingLeft="13dp"
+                android:paddingTop="11dp"
+                android:paddingRight="13dp"
+                android:paddingBottom="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:id="@+id/settings_steam_logo"
+                        android:layout_width="34dp"
+                        android:layout_height="34dp"
+                        android:importantForAccessibility="no"
+                        android:src="@drawable/ic_steam" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginLeft="12dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/settings_steam_title"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="sans-serif-medium"
+                            android:text="@string/settings_steam_not_signed"
+                            android:textColor="#E8ECF4"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/settings_steam_id"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="monospace"
+                            android:textColor="#7E8CA0"
+                            android:textSize="12sp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/settings_steam_open"
+                    android:layout_width="match_parent"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/btn_neutral"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="@string/settings_steam_open"
+                    android:textColor="#E8ECF4"
+                    android:textSize="12sp" />
+
+            </LinearLayout>
+
             <!-- about -->
             <TextView
                 android:layout_width="match_parent"

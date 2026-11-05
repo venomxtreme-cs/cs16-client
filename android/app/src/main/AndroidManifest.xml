@@ -93,6 +93,19 @@
             android:theme="@android:style/Theme.NoTitleBar"
             android:exported="false" />
 
+        <!-- A7 build 136 (item 1): the Steam sign-in / friends WebView
+             opened by XashActivity.openSteamFriends() (engine command
+             "steamfriends") was MISSING here - the engine manifest
+             declares it, but after the build-114 merge only THIS app's
+             manifest is installed, so the command hit an
+             ActivityNotFoundException and the Steam login could never
+             open on device -->
+        <activity
+            android:name="su.xash.engine.SteamFriendsActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|keyboard|navigation"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- build 113: Settings tab (launch options + engine crash log)
              and the full-screen log reader -->
         <activity

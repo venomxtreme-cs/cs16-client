@@ -59,7 +59,17 @@ public class MainActivity extends Activity {
         // "-a7bg": force ONE bundle re-extract so the CS 1.6 menu splash
         // (cstrike/gfx/shell/splash.bmp) replaces the Half-Life splash that
         // old game-data packages left in the gamedir - see mayOverwrite
-        private static final String ADDONS_VERSION = "amxx-1.9.0.5314-" + BuildConfig.VERSION_NAME + "-b73-gamemenu";
+        //
+        // A7 build 136 (item 2, user: "when i click launcher game it take
+        // time, fix it make work fast"): this stamp used to embed
+        // BuildConfig.VERSION_NAME, so EVERY APK build (even with an
+        // identical assets/addons.zip) failed the gate and re-extracted the
+        // whole ~100 MB bundle on first launch - the biggest remaining wait
+        // on the tap path. The gate is now the CRC32 of the asset itself
+        // (assetGateVersion()): ordinary builds hit the warm path (marker
+        // file + unchanged stamp == instant), only a real bundle change
+        // re-extracts. One-time re-extract here because the stamp format
+        // changed.
 
         // separate gate for the bot asset sync (yaPB conf/graphs, eBot
         // configs/waypoints, ReGameDLL BotProfile/BotChatter dbs) - bump
@@ -638,6 +648,53 @@ public class MainActivity extends Activity {
                 ModuleInstaller.reapplyAll();
         }
 
+        // A7 build 136 (item 2): content-addressed version stamp for a
+        // bundled zip asset. CRC32 of assets/<assetName>, cached - the
+        // first computation costs one asset read (replacing the old full
+        // sha256/zip walk), afterwards it is a HashMap hit. Keeps the
+        // "amxx-1.9.0.5314-..." prefix the on-device pref stores, with
+        // crc<hex> where the app version used to be.
+        private static final java.util.HashMap<String, String> sAssetGateCache =
+                new java.util.HashMap<String, String>();
+
+        private String assetGateVersion( String assetName ) {
+                synchronized( sAssetGateCache ) {
+                        String hit = sAssetGateCache.get( assetName );
+                        if( hit != null )
+                                return hit;
+                }
+
+                String v;
+                try {
+                        java.util.zip.CRC32 crc = new java.util.zip.CRC32();
+                        InputStream in = getAssets().open( assetName );
+                        try {
+                                byte[] buf = new byte[65536];
+                                int n;
+                                while(( n = in.read( buf )) > 0 )
+                                        crc.update( buf, 0, n );
+                        } finally {
+                                in.close();
+                        }
+                        v = "amxx-1.9.0.5314-crc"
+                                + Long.toHexString( crc.getValue())
+                                + "-b73-gamemenu";
+                } catch( Throwable t ) {
+                        // asset unreadable: fall back to the old behaviour
+                        // (app-version tied stamp) rather than skipping the
+                        // extraction gate
+                        v = "amxx-1.9.0.5314-" + BuildConfig.VERSION_NAME
+                                + "-b73-gamemenu";
+                }
+
+                Log.i( TAG, "[A7] build136: addons gate " + assetName + " = " + v );
+
+                synchronized( sAssetGateCache ) {
+                        sAssetGateCache.put( assetName, v );
+                }
+                return v;
+        }
+
         private int extractZipIfNeeded( String assetName, String prefKey,
                 String markerRelPath, boolean full, boolean factoryReset,
                 Map<String, String> manifest ) throws Exception {
@@ -646,8 +703,12 @@ public class MainActivity extends Activity {
 
                 File markerLib = new File( getXashDir(), markerRelPath );
 
-                if( !full && ADDONS_VERSION.equals( installed ) && markerLib.isFile() ) {
-                        Log.i( TAG, "AMXX addons up to date (" + assetName + ": " + ADDONS_VERSION + ")" );
+                // A7 build 136 (item 2): gate on the asset's content crc,
+                // not on the app version - see assetGateVersion()
+                String gateVersion = assetGateVersion( assetName );
+
+                if( !full && gateVersion.equals( installed ) && markerLib.isFile() ) {
+                        Log.i( TAG, "AMXX addons up to date (" + assetName + ": " + gateVersion + ")" );
                         return 0;
                 }
 
@@ -704,7 +765,7 @@ public class MainActivity extends Activity {
                 }
                 zis.close();
 
-                prefs.edit().putString( prefKey, ADDONS_VERSION ).apply();
+                prefs.edit().putString( prefKey, gateVersion ).apply();
                 Log.i( TAG, "AMXX addons extracted (" + assetName + "): " + count
                         + " files -> " + dest.getAbsolutePath() );
                 Toast.makeText( this, "AMX Mod X addons installed (" + assetName + ": "
@@ -1611,7 +1672,7 @@ public class MainActivity extends Activity {
          * Bot packs (YaPB conf/graphs, EBot configs) ship as individual files
          * under assets/addons/**, but both bots read them with plain libc
          * fopen() against the game directory - which cannot see inside the
-         * APK. Copy them to /xash/cstrike/addons once per ADDONS_VERSION so
+         * APK. Copy them to /xash/cstrike/addons once per BOT_ASSETS_VERSION so
          * every bot file is on disk next to the metamod plugins.
          */
         private int extractBotAssetsIfNeeded( boolean full, boolean factoryReset,

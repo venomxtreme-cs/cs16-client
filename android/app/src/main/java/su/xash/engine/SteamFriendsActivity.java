@@ -150,8 +150,35 @@ public class SteamFriendsActivity extends Activity {
 		});
 
 		mSteamId = readAccountFile( "steamid" );
-		setStatus( mSteamId.isEmpty() ? "Not signed in" : ( "Signed in: " + mSteamId ));
+		setStatus( mSteamId.isEmpty() ? "Not signed in" : ( "Steam ID: " + mSteamId ));
 		mWeb.loadUrl( mSteamId.isEmpty() ? URL_LOGIN : URL_FRIENDS );
+	}
+
+	// A7 build 136 (item 1, user: connect/disconnect must both work):
+	// sign out for real - WebView cookies go, friends/steamid.txt is
+	// deleted, so this status bar, the launcher Settings card and the
+	// in-game Options Steam row all read "not signed in" again
+	private void signOut()
+	{
+		try {
+			CookieManager cookies = CookieManager.getInstance();
+			cookies.removeAllCookies( null );
+			cookies.flush();
+		} catch( Throwable ignored ) {
+		}
+
+		try {
+			File f = new File( mFriendsDir, "steamid.txt" );
+			if( f.isFile()) {
+				if( f.delete())
+					Log.i( TAG, "[A7] build136: steam sign out (steamid.txt removed)" );
+			}
+		} catch( Throwable ignored ) {
+		}
+
+		mSteamId = "";
+		setStatus( "Not signed in" );
+		mWeb.loadUrl( URL_LOGIN );
 	}
 
 	// ------------------------------------------------------------------
@@ -177,6 +204,10 @@ public class SteamFriendsActivity extends Activity {
 		});
 		addButton( bar, "Sign in", v -> mWeb.loadUrl( URL_LOGIN ));
 		addButton( bar, "Friends", v -> mWeb.loadUrl( URL_FRIENDS ));
+		// A7 build 136 (item 1): a real Disconnect - the old screen had no
+		// way out of an account, so "connected" stuck forever (the menu
+		// options row and this status bar would keep showing the id)
+		addButton( bar, "Sign out", v -> signOut());
 		addButton( bar, "Close", v -> finish());
 
 		LinearLayout statusRow = new LinearLayout( this );
@@ -241,7 +272,12 @@ public class SteamFriendsActivity extends Activity {
 			{
 				mSteamId = id;
 				writeAccountFile( "steamid", id );
-				setStatus( "Signed in: " + id );
+				// A7 build 136 (item 1): "connected" = id on disk, and the
+				// line says Steam ID exactly like the launcher Settings card
+				// and the in-game Options row do
+				setStatus( "Steam ID: " + id );
+				Log.i( TAG, "[A7] build136: steam connected " + id
+						+ " (friends/steamid.txt written)" );
 			}
 
 			if( saveFriends )

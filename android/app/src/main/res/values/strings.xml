@@ -115,6 +115,12 @@
     <string name="settings_sub">Launch options, engine log and app info.</string>
     <string name="settings_section_log">ENGINE LOG</string>
     <string name="settings_section_launch">LAUNCH OPTIONS</string>
+    <!-- A7 build 136 (item 1): Steam account card in Settings -->
+    <string name="settings_section_steam">STEAM ACCOUNT</string>
+    <string name="settings_steam_not_signed">Not signed in - tap to connect your Steam account</string>
+    <string name="settings_steam_signed">Steam account connected</string>
+    <string name="settings_steam_hint">Open Steam friends / manage your account</string>
+    <string name="settings_steam_open">Open Steam sign-in</string>
     <string name="settings_section_about">ABOUT</string>
     <string name="settings_log_open">VIEW LOG</string>
     <string name="settings_log_share">SHARE</string>
