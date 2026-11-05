@@ -624,8 +624,14 @@ public class MainActivity extends Activity {
                 // (Half-Life) AMX addons are handled by the engine app itself
                 // (Xash3D FWGS (AMXX)) at valve game launch since v9.
                 extractBotAssetsIfNeeded( full, factoryReset, manifest );
+                // A7 build 137 (item 4): the marker can no longer be a native
+                // library - since this build NO .so is written to /sdcard at
+                // all (metamod/AMXX/regamedll load from the APK lib dir), so
+                // the arm64-only libmetamod marker would never exist on a
+                // fresh install and the gate would re-extract every launch.
+                // plugins.ini ships in the same bundle and is ABI-neutral.
                 extractZipIfNeeded( "addons.zip", "addons_version",
-                        "cstrike/addons/metamod/dlls/libmetamod_android_arm64.so",
+                        "cstrike/addons/metamod/plugins.ini",
                         full, factoryReset, manifest );
                 saveShippedManifest( manifest );
 
@@ -695,10 +701,122 @@ public class MainActivity extends Activity {
                 return v;
         }
 
+        // ------------------------------------------------------------------
+        // A7 build 137 (item 4, user: "fix libs in xash folder should not be
+        // there like amxmodx metamod, only inside apk finding gamedir, for
+        // all androids ... fix also for reinstall addons sometime it do
+        // mixed and put dll .so on xash"): no native library may live under
+        // /sdcard/xash any more. Metamod, AMX Mod X and the regamedll all
+        // load from the APK's nativeLibraryDir (XASH3D_GAMELIBDIR, one ABI
+        // only - a package only ever contains the device's own ABI), so the
+        // three historical native dirs are cleaned HERE, before the extract
+        // gate: a 136-era install passes the gate + marker yet still carries
+        // those old .so, and a reinstall that stopped halfway left a mix of
+        // arm64/armv7 files behind (the "reinstall puts dll .so on xash"
+        // report). Every candidate is ELF-verified with
+        // ModuleInstaller.detectAbi() first, so the log states exactly which
+        // ABI was on disk versus which ABI this APK serves.
+        // ------------------------------------------------------------------
+        private static volatile boolean sPurgedSdLibsThisRun = false;
+
+        /** the single ABI this APK packages, read from its own lib dir. */
+        private String detectApkAbi() {
+                try {
+                        File[] libs = new File( getApplicationInfo().nativeLibraryDir ).listFiles();
+                        if( libs != null ) {
+                                for( File f : libs ) {
+                                        if( f.getName().endsWith( ".so" )) {
+                                                String a = ModuleInstaller.detectAbi( f );
+                                                if( a != null )
+                                                        return a;
+                                        }
+                                }
+                        }
+                } catch( Throwable t ) {
+                }
+                return null;
+        }
+
+        private void purgeSdCardLibs() {
+                if( sPurgedSdLibsThisRun )
+                        return;
+                sPurgedSdLibsThisRun = true;
+
+                String apkAbi = detectApkAbi();
+
+                // A7 build 137: the Modules tab installs user-owned .so into
+                // exactly these directories and records them in
+                // <gamedir>/addons/.custom-modules - those are the USER's files
+                // (registered bases are never touched), everything else in here
+                // is shipped content that must move to the APK
+                java.util.HashSet<String> customs = new java.util.HashSet<String>();
+                try {
+                        for( ModuleInstaller.Entry e : ModuleInstaller.readRegistry( "cstrike" )) {
+                                if( e.base != null )
+                                        customs.add( e.base.toLowerCase( Locale.US ));
+                        }
+                } catch( Throwable t ) {
+                }
+
+                String[] roots = {
+                        "cstrike/addons/metamod/dlls",
+                        "cstrike/addons/amxmodx/dlls",
+                        "cstrike/addons/amxmodx/modules",
+                };
+                int removed = 0, foreign = 0, kept = 0;
+
+                for( String r : roots ) {
+                        File[] files = new File( getXashDir(), r ).listFiles();
+                        if( files == null )
+                                continue;
+
+                        for( File f : files ) {
+                                if( !f.isFile())
+                                        continue;
+
+                                String n = f.getName().toLowerCase( Locale.ROOT );
+                                if( !n.endsWith( ".so" ) && !n.endsWith( ".dll" ))
+                                        continue;
+
+                                // registered by the Modules tab: the user's own
+                                // file - the shipped-library purge skips it
+                                if( customs.contains(
+                                        ModuleInstaller.baseName( f.getName()).toLowerCase( Locale.US ))) {
+                                        kept++;
+                                        Log.i( TAG, "[A7] build137: kept user module " + r + "/" + f.getName());
+                                        continue;
+                                }
+
+                                String abi = ModuleInstaller.detectAbi( f );
+                                if( apkAbi != null && abi != null && !apkAbi.equals( abi ))
+                                        foreign++;
+
+                                Log.i( TAG, "[A7] build137: purge sdcard lib " + r + "/"
+                                        + f.getName() + " (abi " + ( abi != null ? abi : "unknown" )
+                                        + ", apk abi " + ( apkAbi != null ? apkAbi : "unknown" ) + ")" );
+
+                                if( f.delete())
+                                        removed++;
+                                else
+                                        Log.w( TAG, "[A7] build137: could not remove " + f.getAbsolutePath());
+                        }
+                }
+
+                Log.i( TAG, "[A7] build137: purge sdcard lib done - " + removed
+                        + " removed, wrong-abi " + foreign + ", customs kept "
+                        + kept + ", apk abi " + ( apkAbi != null ? apkAbi : "unknown" ));
+        }
+
         private int extractZipIfNeeded( String assetName, String prefKey,
                 String markerRelPath, boolean full, boolean factoryReset,
                 Map<String, String> manifest ) throws Exception {
                 SharedPreferences prefs = getPreferences( MODE_PRIVATE );
+
+                // A7 build 137: BEFORE the gate - a warm (unchanged) install
+                // must clean the old .so too, else only a bundle change
+                // would ever purge them
+                purgeSdCardLibs();
+
                 String installed = prefs.getString( prefKey, null );
 
                 File markerLib = new File( getXashDir(), markerRelPath );
@@ -721,6 +839,7 @@ public class MainActivity extends Activity {
                 ZipInputStream zis = new ZipInputStream( in );
 
                 ZipEntry entry;
+                int libSkipped = 0;
                 while(( entry = zis.getNextEntry() ) != null ) {
                         if( entry.isDirectory() )
                                 continue;
@@ -731,6 +850,24 @@ public class MainActivity extends Activity {
                         // zip-slip guard
                         if( !outFile.getCanonicalPath().startsWith( destCanon + File.separator )) {
                                 Log.w( TAG, "skipping suspicious zip entry: " + rel );
+                                continue;
+                        }
+
+                        // A7 build 137 (item 4): NATIVE LIBRARIES ARE NEVER
+                        // WRITTEN TO /sdcard any more - the engine sources
+                        // metamod/AMXX/regamedll from the APK's
+                        // nativeLibraryDir (single ABI, set in
+                        // XashActivity.getArguments -> XASH3D_GAMELIBDIR), so
+                        // a gamedir copy could only ever go stale or get
+                        // mixed with the wrong ABI on a reinstall. The zips
+                        // keep their entries (content must stay identical to
+                        // the reference); only the EXTRACTION skips them and
+                        // deletes any leftover from an older install.
+                        if( rel.endsWith( ".so" ) || rel.endsWith( ".dll" )) {
+                                if( outFile.isFile() && outFile.delete())
+                                        Log.i( TAG, "[A7] build137: removed leftover sdcard ll " + rel );
+                                libSkipped++;
+                                zis.closeEntry();
                                 continue;
                         }
 
@@ -764,6 +901,12 @@ public class MainActivity extends Activity {
                         zis.closeEntry();
                 }
                 zis.close();
+
+                // A7 build 137 (item 4): one proof line - how many library
+                // entries the bundle carried versus how many landed on
+                // /sdcard (always 0 from this build on)
+                Log.i( TAG, "[A7] build137: addons zip " + libSkipped
+                        + " libs served from APK, 0 written to /sdcard" );
 
                 prefs.edit().putString( prefKey, gateVersion ).apply();
                 Log.i( TAG, "AMXX addons extracted (" + assetName + "): " + count
