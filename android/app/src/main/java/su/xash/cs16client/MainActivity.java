@@ -102,6 +102,17 @@ public class MainActivity extends Activity {
         private final java.util.HashMap<String, String> mPakDirCache =
                 new java.util.HashMap<String, String>();
 
+        // A7 build 141 (round 141 item 2, user: "fix when click start game
+        // still being too late"): true once this launch's bundle pass has
+        // FINISHED writing to disk (gate hit or full extract). While it is
+        // false a PLAY tap must queue - the bundle may be half-written.
+        // While it is true the tap starts IMMEDIATELY even though the
+        // install thread is still running: before this build the queue
+        // covered the whole pass (extract + stamp rewrites + 3 FUSE pak
+        // walks + up to 6 dlopen of ~30 MB), which is exactly the first
+        // second after opening the launcher - the moment he taps.
+        private volatile boolean mBundleCurrent = false;
+
         // A tap that lands while the bundle install is still running (the
         // first launch after every app update re-extracts it) is remembered
         // here and fired the moment the install thread releases its gate -
@@ -201,10 +212,16 @@ public class MainActivity extends Activity {
                         public void run() {
                                 final long startMs = android.os.SystemClock.elapsedRealtime();
 
+                                // true while THIS pass still owes a good bundle - a caught
+                                // extraction error below must keep the tap
+                                // queue in place (half-written bundle)
+                                boolean extractFailed = false;
+
                                 try {
                                         try {
                                                 extractAddonsIfNeeded();
                                         } catch( Throwable t ) {
+                                                extractFailed = true;
                                                 Log.w( TAG, "addons extraction failed", t );
                                                 logInstallError( "cstrike addons (cs16client)", t );
                                                 // Toast from a non-UI thread throws
@@ -221,6 +238,28 @@ public class MainActivity extends Activity {
                                         // the fvault seeds ride with no zip; they appear only
                                         // while the Zombie Plague X pack is installed and enabled
                                         ensureZpxVaultSeeds();
+
+                                        // A7 build 141 (round 141 item 2, "fix
+                                        // when click start game still being too
+                                        // late"): the bundle + seeds are fully on
+                                        // disk now. From THIS point a PLAY tap
+                                        // starts the engine even while the warm
+                                        // work below (3 FUSE pak walks + up to
+                                        // 6 dlopen of ~30 MB) is still running.
+                                        // Before this flag the tap queued for
+                                        // the WHOLE pass, and that window IS the
+                                        // first second after opening the
+                                        // launcher - exactly when he taps.
+                                        // extractFailed keeps it false:
+                                        // a half-written bundle must still queue.
+                                        if( extractFailed ) {
+                                                Log.w( TAG, "[A7] build141: bundle extract FAILED - taps stay queued" );
+                                        } else {
+                                                mBundleCurrent = true;
+                                                Log.i( TAG, "[A7] build141: bundle on disk - PLAY tap no longer waits ("
+                                                        + ( android.os.SystemClock.elapsedRealtime() - startMs )
+                                                        + " ms after launcher start)" );
+                                        }
                                 } finally {
                                         Log.i( TAG, "[A7] build127: background install took " + (android.os.SystemClock.elapsedRealtime() - startMs) + " ms" );
 
@@ -377,20 +416,33 @@ public class MainActivity extends Activity {
         }
 
         /**
-         * Single entry point for the three game cards. Takes storage-checked
-         * care of the three states a tap can arrive in: bundle install still
-         * running (queued), warm finished (instant), warm not finished yet
-         * (prep runs OFF-thread, then starts) - the UI thread never walks
-         * the filesystem.
+         * Single entry point for the three game cards. Four states a tap can
+         * arrive in (A7 build 141, round 141 item 2 "fix when click start
+         * game still being too late"):
+         *   1. bundle still extracting  -> queued (a half-written bundle
+         *      must finish first; the toast says so),
+         *   2. bundle on disk, warm running (pak walks / lib preloads),
+         *      warm prep DONE           -> instant start - before this build
+         *      state 2 QUEUED too, and the warm pass is what runs through
+         *      the first second after opening the launcher: exactly the
+         *      window he taps in,
+         *   3. bundle on disk, warm NOT done -> the pak-dir answer (the only
+         *      thing missing) resolves on a worker, the engine starts right
+         *      after - the old code here re-ran extractAddons + seeds +
+         *      warmLaunchCache, duplicating the install thread's full work
+         *      and delaying the start even more,
+         *   4. nothing running (prep never started, e.g. failed pass) ->
+         *      the safety net: prep OFF-thread, then start.
+         * The UI thread never walks the filesystem in any state.
          */
         private void beginLaunch( final String game, final long tapMs ) {
-                if( mInstallRunning.get()) {
+                if( mInstallRunning.get() && !mBundleCurrent ) {
                         // the first launch after every update re-extracts the
                         // bundle; a tap during that window used to hit a
                         // DISABLED button and die silently
                         mPendingLaunchGame = game;
                         mPendingLaunchTapMs = tapMs;
-                        Log.i( TAG, "[A7] build128: tap queued - addons still installing (game=" + game + ")" );
+                        Log.i( TAG, "[A7] build141: tap queued - bundle still extracting (game=" + game + ")" );
                         Toast.makeText( this,
                                 "Installing game add-ons - starting the game as soon as it is ready",
                                 Toast.LENGTH_SHORT ).show();
@@ -398,30 +450,57 @@ public class MainActivity extends Activity {
                 }
 
                 if( mLaunchPrepDone ) {
+                        if( mInstallRunning.get())
+                                Log.i( TAG, "[A7] build141: tap started during warm - bundle current (game="
+                                        + game + ", " + ( android.os.SystemClock.uptimeMillis() - tapMs )
+                                        + " ms after tap)" );
                         startGameNow( game, tapMs );
                         return;
                 }
 
-                // rare: the tap beat the warm thread. Finish the prep on a
-                // worker thread, then start from the UI thread - still no
-                // freeze, just the same wait as the old code had.
+                // A7 build 141: bundle is on disk (or the safety net below
+                // will put it there) but the pak dir is not cached yet -
+                // resolve only THAT on a worker, never the whole chain.
                 new Thread( new Runnable() {
                         @Override
                         public void run() {
+                                // safety net for a pass that never marked the
+                                // bundle current (rare - failed install): do
+                                // the missing prep before starting
+                                if( !mBundleCurrent ) {
+                                        try {
+                                                extractAddonsIfNeeded();
+                                        } catch( Throwable t ) {
+                                                Log.w( TAG, "on-demand launch prep failed", t );
+                                        }
+                                        try {
+                                                ensureZpxVaultSeeds();
+                                        } catch( Throwable ignored ) {
+                                        }
+                                }
+
+                                // the only thing the start itself needs - one
+                                // walk (cached afterwards for every retry)
                                 try {
-                                        extractAddonsIfNeeded();
+                                        cachedPakDir( pakDirKeyFor( game ));
                                 } catch( Throwable t ) {
-                                        Log.w( TAG, "on-demand launch prep failed", t );
+                                        Log.w( TAG, "pak dir resolve failed", t );
                                 }
-                                try {
-                                        ensureZpxVaultSeeds();
-                                } catch( Throwable ignored ) {
+
+                                // warm only when NO install thread owns it - in state 3 that
+                                // thread is warming right now and a second warm
+                                // would just walk the tree twice
+                                if( !mInstallRunning.get() && !mLaunchPrepDone ) {
+                                        try {
+                                                warmLaunchCache();
+                                        } catch( Throwable t ) {
+                                                Log.w( TAG, "on-demand warm failed", t );
+                                        }
                                 }
-                                try {
-                                        warmLaunchCache();
-                                } catch( Throwable t ) {
-                                        Log.w( TAG, "on-demand warm failed", t );
-                                }
+
+                                Log.i( TAG, "[A7] build141: tap ran its off-thread prep - starting (game="
+                                        + game + ", " + ( android.os.SystemClock.uptimeMillis() - tapMs )
+                                        + " ms after tap)" );
                                 runOnUiThread( new Runnable() {
                                         @Override
                                         public void run() {
@@ -430,6 +509,15 @@ public class MainActivity extends Activity {
                                 });
                         }
                 }, "launch-prep" ).start();
+        }
+
+        /** gamedir key of a startGameNow() game id, for the pak cache. */
+        private String pakDirKeyFor( String game ) {
+                if( "hl".equals( game ) || "valve".equals( game ))
+                        return "valve";
+                if( "cz".equals( game ))
+                        return "czero";
+                return "cstrike";
         }
 
         private void startGameNow( String game, long tapMs ) {

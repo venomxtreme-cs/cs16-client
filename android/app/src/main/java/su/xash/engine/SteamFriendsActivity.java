@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.text.InputType;
 import android.util.Log;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
@@ -14,6 +15,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -28,6 +30,9 @@ import java.util.ArrayList;
  * A7: Steam friends screen - the "connect Steam on Android, come back to
  * Counter-Strike" flow. A plain WebView on top of the running game:
  *
+ *   Steam ID  - type a 7656... number (or STEAM_0:0:1) and Connect:
+ *               the public profile XML fetches id + name + photo WITHOUT
+ *               any password (build 141 - the primary connect path now)
  *   Sign in   - steamcommunity.com/login (cookies persist in this app, so
  *               the session survives leaving the screen)
  *   Friends   - the account's friends page; the names are scraped out of it
@@ -105,6 +110,10 @@ public class SteamFriendsActivity extends Activity {
 
 	private WebView mWeb;
 	private TextView mStatus;
+	// A7 build 141 (round 141 item 1): the Steam ID entry box - the
+	// password-free connect path he asked for ("let's do other way to
+	// login like steam id or?")
+	private EditText mSteamIdInput;
 	private File mFriendsDir;
 	// <basedir>/<gamedir>: my own avatar goes to media/avatars under it
 	private File mGameDir;
@@ -177,11 +186,13 @@ public class SteamFriendsActivity extends Activity {
 
 		if( mSteamId.isEmpty())
 		{
-			// A7 build 138 (round 137 item 1): no session - the sign-in
-			// starts in Chrome right away. onResume() runs straight after
-			// onCreate() and continues the flow inside the app (or the
-			// browser fallback below has already loaded the login page).
-			openChromeSignIn();
+			// A7 build 141 (round 141 item 1, user: "fix steam login, let's
+			// do other way to login like steam id or?"): the screen NO
+			// LONGER bounces to Chrome by itself - typing the Steam ID in
+			// the row below is the primary connect now (no password, no
+			// browser). The Sign in button keeps the old Chrome hand-off
+			// for friends scraping, which still needs a signed-in session.
+			setStatus( "Enter your Steam ID below and tap Connect" );
 		}
 		else
 		{
@@ -273,6 +284,192 @@ public class SteamFriendsActivity extends Activity {
 	}
 
 	// ------------------------------------------------------------------
+	// A7 build 141 (round 141 item 1, user: "fix steam login, let's do
+	// other way to login like steam id or?"): connect by Steam ID.
+	//
+	// No password, no WebView session, NO Steam Web API key (project
+	// rule): the public profile XML (steamcommunity.com/profiles/<id>/?xml=1)
+	// supplies the persona name and the full photo - the exact endpoint
+	// fetchMyAvatar already relies on. playerdb.co is the mirror when
+	// steamcommunity does not answer (filtered networks), the same mirror
+	// the engine's avatar fetcher uses.
+	//
+	// The writes are IDENTICAL to the Chrome flow (friends/steamid.txt +
+	// friends/name.txt + media/avatars/avatar_self.png), so everything
+	// downstream is untouched: the launcher Settings card, the in-game
+	// Options Steam row and, since build 140, the live menu signal
+	// (notifyAvatarSaved -> @cl_avatargen -> UI_ApplySteamPersona).
+	// ------------------------------------------------------------------
+
+	/** user input to a steamid64: a plain 7656... 17-digit number (any
+	 *  junk around it is stripped - a pasted profile URL works too) or the
+	 *  legacy STEAM_X:Y:Z form. Returns "" when nothing usable. */
+	private static String normalizeSteamId( String raw )
+	{
+		if( raw == null )
+			return "";
+
+		String s = raw.trim();
+
+		java.util.regex.Matcher legacy = java.util.regex.Pattern.compile(
+			"STEAM_([0-5]):([0-1]):([0-9]+)",
+			java.util.regex.Pattern.CASE_INSENSITIVE ).matcher( s );
+		if( legacy.find())
+		{
+			// steamid64 = base + Z * 2 + Y (universe 0/1 share the public base)
+			try {
+				long z = Long.parseLong( legacy.group( 3 ));
+				long y = Long.parseLong( legacy.group( 2 ));
+				return String.valueOf( 76561197960265728L + z * 2L + y );
+			} catch( Throwable ignored ) {
+			}
+		}
+
+		// digits only, then the shape check happens at the caller
+		return s.replaceAll( "[^0-9]", "" );
+	}
+
+	/** first "field":"value" of a small JSON document (the playerdb
+	 *  mirror has no schema this screen should depend on beyond that). */
+	private static String jsonStringField( String json, String field )
+	{
+		java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+			"\"" + field + "\"\\s*:\\s*\"([^\"]+)\"" ).matcher( json );
+		return m.find() ? m.group( 1 ) : null;
+	}
+
+	/** the Connect button: validate, look the profile up off the UI
+	 *  thread, write id + persona + avatar, signal the running menu. */
+	private void connectBySteamId( String raw )
+	{
+		final String id = normalizeSteamId( raw );
+		if( !id.matches( "7656[0-9]{13}" ))
+		{
+			setStatus( "Not a Steam ID - enter 7656... (17 digits) or STEAM_0:0:1" );
+			return;
+		}
+
+		setStatus( "Looking up Steam ID " + id + " ..." );
+
+		new Thread( new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				String xml = httpGetString(
+					"https://steamcommunity.com/profiles/" + id + "/?xml=1" );
+
+				String name = null, avatar = null;
+				boolean profileSeen = false;
+				// Private / friends-only: the ID is valid but Steam hides
+				// the persona photo - save the id and tell him to open the
+				// profile instead of reporting a failure
+				boolean hiddenProfile = false;
+
+				if( xml != null && xml.contains( "<profile>" ))
+				{
+					profileSeen = true;
+					String visibility = extractXmlTag( xml, "privacyVisibility" );
+					hiddenProfile = "Private".equalsIgnoreCase( visibility )
+							|| "FriendsOnly".equalsIgnoreCase( visibility );
+					name = extractXmlTag( xml, "personaName" );
+					avatar = extractXmlTag( xml, "avatarFull" );
+				}
+
+				// steamcommunity blocked/smells like a bot -> the playerdb
+				// mirror (same one XashActivity.avatarFetch falls back to)
+				if( name == null || name.isEmpty())
+				{
+					String json = httpGetString(
+						"https://playerdb.co/api/player/steam/" + id );
+					if( json != null )
+					{
+						String mirrorName = jsonStringField( json, "personaname" );
+						if( mirrorName == null )
+							mirrorName = jsonStringField( json, "username" );
+						if( mirrorName == null )
+							mirrorName = jsonStringField( json, "steamName" );
+						if( mirrorName != null && !mirrorName.isEmpty())
+						{
+							name = mirrorName;
+							profileSeen = true;
+							hiddenProfile = false;
+						}
+						if( avatar == null || avatar.isEmpty())
+							avatar = jsonStringField( json, "avatar" );
+					}
+				}
+
+				if( xml == null && !profileSeen && avatar == null )
+				{
+					finishOnUi( "No answer from Steam - check internet, tap Connect again" );
+					return;
+				}
+				if( !profileSeen && avatar == null )
+				{
+					finishOnUi( "Steam ID " + id + " not found - check the number" );
+					return;
+				}
+
+				// ------- the same writes the Chrome flow produces -------
+				boolean changed = false;
+
+				if( !id.equals( mSteamId )
+						|| !new File( mFriendsDir, "steamid.txt" ).isFile())
+				{
+					mSteamId = id;
+					writeAccountFile( "steamid", id );
+					changed = true;
+				}
+
+				if( !hiddenProfile && name != null && !name.isEmpty())
+				{
+					String clean = sanitizePersona( name );
+					if( !clean.isEmpty() && !clean.equals( readAccountFile( "name" )))
+					{
+						writeAccountFile( "name", clean );
+						changed = true;
+						name = clean;
+					}
+				}
+
+				if( !hiddenProfile )
+					fetchMyAvatar( avatar != null ? avatar : "" );
+
+				// ------- status + the live menu signal (build 140) -------
+				String status;
+				if( hiddenProfile )
+					status = "Steam ID: " + id + " - profile is private, set it to Public for name/photo";
+				else if( name != null && !name.isEmpty())
+					status = "Steam ID: " + id + "  -  " + name;
+				else
+					status = "Steam ID: " + id + " - no name returned";
+				finishOnUi( status );
+
+				if( changed )
+				{
+					// marker scanned from the dex by scan112
+					Log.i( TAG, "[A7] build141: steam connected via ID entry " + id );
+					XashActivity.notifyAvatarSaved();
+				}
+			}
+		}, "steam-id-lookup" ).start();
+	}
+
+	/** setStatus via the UI thread - the ID lookup runs on a worker. */
+	private void finishOnUi( final String s )
+	{
+		runOnUiThread( new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				setStatus( s );
+			}
+		});
+	}
+
+	// ------------------------------------------------------------------
 	// UI: a thin control bar over the full-height WebView
 	// ------------------------------------------------------------------
 	private void buildLayout()
@@ -314,7 +511,38 @@ public class SteamFriendsActivity extends Activity {
 
 		mWeb = new WebView( this );
 
+		// A7 build 141 (round 141 item 1, user: "fix steam login, let's do
+		// other way to login like steam id or?"): Steam ID entry row - connect
+		// without any password or WebView session. The public profile XML
+		// carries the persona name + photo (NO Steam Web API key, the same
+		// endpoint fetchMyAvatar already uses), so one number in, one
+		// connect out: friends/steamid.txt + friends/name.txt + the avatar,
+		// exactly the files the Chrome flow writes - the launcher card, the
+		// in-game Options Steam row and the build-140 live menu signal all
+		// keep working unchanged. Chrome stays as the second door (Friends
+		// scraping still needs a signed-in session).
+		LinearLayout idRow = new LinearLayout( this );
+		idRow.setOrientation( LinearLayout.HORIZONTAL );
+		idRow.setPadding( 8, 0, 8, 4 );
+
+		mSteamIdInput = new EditText( this );
+		mSteamIdInput.setHint( "Steam ID (7656... or STEAM_0:0:1)" );
+		// text, not class-number: the legacy STEAM_0:0:1 form carries
+		// colons (normalizeSteamId() accepts both shapes)
+		mSteamIdInput.setInputType( InputType.TYPE_CLASS_TEXT
+			| InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+			| InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD );
+		mSteamIdInput.setTextColor( Color.LTGRAY );
+		mSteamIdInput.setHintTextColor( 0xFF7E8CA0 );
+		mSteamIdInput.setTextSize( 14 );
+		mSteamIdInput.setSingleLine( true );
+		idRow.addView( mSteamIdInput, new LinearLayout.LayoutParams(
+			0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f ));
+		addButton( idRow, "Connect", v -> connectBySteamId( mSteamIdInput.getText().toString()));
+
 		root.addView( bar, new LinearLayout.LayoutParams(
+			ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT ));
+		root.addView( idRow, new LinearLayout.LayoutParams(
 			ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT ));
 		root.addView( mWeb, new LinearLayout.LayoutParams(
 			ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f ));
@@ -681,6 +909,20 @@ public class SteamFriendsActivity extends Activity {
 		{
 			if( c != null )
 				try { c.disconnect(); } catch( Throwable ignored ) {}
+		}
+	}
+
+	/** the same fetch as httpGet(), decoded as one UTF-8 string -
+	 *  null when the network failed (A7 build 141, Steam ID entry). */
+	private String httpGetString( String url )
+	{
+		byte[] data = httpGet( url );
+		if( data == null || data.length == 0 )
+			return null;
+		try {
+			return new String( data, 0, data.length, "UTF-8" );
+		} catch( Throwable t ) {
+			return null;
 		}
 	}
 
