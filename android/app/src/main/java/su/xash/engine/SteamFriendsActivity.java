@@ -361,11 +361,16 @@ public class SteamFriendsActivity extends Activity {
 		{
 			JSONObject o = new JSONObject( json );
 
+			// A7 build 140 (round 140 item 3): set when this pass wrote the
+			// id or the persona - see the notifyAvatarSaved() below
+			boolean accountChanged = false;
+
 			String id = o.optString( "id", "" );
 			if( !id.isEmpty() && !id.equals( mSteamId ))
 			{
 				mSteamId = id;
 				writeAccountFile( "steamid", id );
+				accountChanged = true;
 				// A7 build 136 (item 1): "connected" = id on disk, and the
 				// line says Steam ID exactly like the launcher Settings card
 				// and the in-game Options row do
@@ -389,9 +394,26 @@ public class SteamFriendsActivity extends Activity {
 				if( !clean.isEmpty() && !clean.equals( readAccountFile( "name" )))
 				{
 					writeAccountFile( "name", clean );
+					accountChanged = true;
 					Log.i( TAG, "[A7] build139: steam persona saved '" + clean
 							+ "' (friends/name.txt)" );
 				}
+			}
+
+			// A7 build 140 (round 140 item 3, user: "i already sign in but
+			// nothing happened"): build 139 wrote the persona files but only
+			// the menu's Show/Reload/Init paths applied them - returning
+			// from this screen re-shows nothing, so the name stayed stale
+			// while he sat where he was. Signal the running game right after
+			// the write: notifyAvatarSaved bumps @cl_avatargen and the menu
+			// watches it every frame (UI_UpdateMenu -> UI_ApplySteamPersona),
+			// so the new name lands the moment he is back in the game.
+			// Engine not running (launcher-side sign-in): the wrapper logs
+			// and UI_Init applies the files at the next start, unchanged.
+			if( accountChanged )
+			{
+				Log.i( TAG, "[A7] build140: steam account changed - signaling menu to apply persona" );
+				XashActivity.notifyAvatarSaved();
 			}
 
 			if( saveFriends )

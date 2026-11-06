@@ -321,6 +321,35 @@ public class MainActivity extends Activity {
                 } catch( Throwable t ) {
                         Log.w( TAG, "engine lib preload failed (the engine will load them itself)", t );
                 }
+
+                // A7 build 140 (round 140 item 5, user: "when click play
+                // should not be too late lagg to start"): engine boot still
+                // dlopened the filesystem and the renderer modules ITSELF on
+                // the tap path - filesystem_stdio ~2.2 MB and ref_gl4es
+                // ~4.9 MB are paid between the tap and the first frame.
+                // Warm them here too, after SDL2/xash (their link
+                // dependencies), ONE lib per try so a missing or failing
+                // load can never block the others - a failure just leaves
+                // the original engine-side dlopen in place. Each lib is
+                // idempotent per process, so the engine's own load turns
+                // into a refcount no-op. The av* decode libs are NOT on the
+                // tap path (video playback) and stay lazy.
+                final long tMods = android.os.SystemClock.uptimeMillis();
+                final String[] tapMods = { "filesystem_stdio", "ref_gl4es",
+                        "ref_gles1", "ref_gles3compat" };
+                int warmed = 0;
+                for( int i = 0; i < tapMods.length; i++ ) {
+                        try {
+                                System.loadLibrary( tapMods[i] );
+                                warmed++;
+                        } catch( Throwable t ) {
+                                Log.w( TAG, "tap-path lib not warmed: " + tapMods[i] );
+                        }
+                }
+                Log.i( TAG, "[A7] build140: tap-path modules warmed (" + warmed
+                        + "/" + tapMods.length + " in "
+                        + ( android.os.SystemClock.uptimeMillis() - tMods )
+                        + " ms; filesystem + renderers)" );
         }
 
         // cached form of findGamePakDir(): the walk is the expensive part of
@@ -659,6 +688,17 @@ public class MainActivity extends Activity {
                 // stamp-gated, not bundle-CRC gated - a warm install must
                 // run it too (see refreshMenuArt)
                 refreshMenuArt();
+
+                // A7 build 140 (round 140 item 2, "other show another
+                // color weird"): the GameUI palette has the same warm-gap
+                // the collage had - the bundle's always-refresh rule for
+                // gfx/shell/colors.lst lives inside mayOverwrite and only
+                // runs DURING an extraction, which the CRC gate skips on
+                // every launch after the first. A stale on-disk palette is
+                // the only thing that repaints the menu away from the
+                // shipped colors (UI_ApplyCustomColors parses it once at
+                // UI_Init), so force it once per bundle, gate or not.
+                refreshMenuColors();
 
                 // the stale-file cleanup is GONE. It deleted the
                 // ProBaseBuilder file set (bb plugins, Pro_basebuilder.ini and
@@ -1052,6 +1092,86 @@ public class MainActivity extends Activity {
                 } catch( Throwable t ) {
                         // no stamp on failure -> retries on the next launch
                         Log.w( TAG, "[A7] build139: menu background art refresh failed", t );
+                }
+        }
+
+        // ------------------------------------------------------------------
+        // A7 build 140 (round 140 item 2): the GameUI palette, forced once
+        // regardless of the extraction gate.
+        //
+        // UI_ApplyCustomColors() (mainui, BaseMenu.cpp) parses
+        // gfx/shell/colors.lst ONCE at UI_Init and is the only writer of
+        // the palette besides the coded defaults - so a stale on-disk copy
+        // repaints the whole menu (the round-131 orange rows report). The
+        // bundle's mayOverwrite() says the shipped palette is "always
+        // refreshed", but that rule only runs INSIDE an extraction, and
+        // extractZipIfNeeded's warm gate (CRC32 of the asset + marker) skips
+        // the extraction on every launch after the first - exactly the gap
+        // refreshMenuArt closed for the collage in build 139. Same pattern
+        // here: stamp-gated one-time rewrite of the shipped colors.lst for
+        // BOTH gamedirs (cstrike = the CS menu, valve = the HL menu) read
+        // straight from the two bundle zips. Palette only - configs, art,
+        // anything else in the gamedir is untouched. No stamp on failure:
+        // it retries on the next launch.
+        // ------------------------------------------------------------------
+        private void refreshMenuColors() {
+                SharedPreferences prefs = getPreferences( MODE_PRIVATE );
+                final String STAMP = "b140";
+                if( STAMP.equals( prefs.getString( "menu_colors_version", "" ) ) )
+                        return;
+
+                byte[] buffer = new byte[65536];
+                int written = 0;
+
+                try {
+                        File dest = getXashDir();
+                        String destCanon = dest.getCanonicalPath();
+                        String[] zips = { "addons.zip", "valve-addons.zip" };
+
+                        for( int zi = 0; zi < zips.length; zi++ ) {
+                                InputStream in = getAssets().open( zips[zi] );
+                                ZipInputStream zis = new ZipInputStream( in );
+                                ZipEntry entry;
+                                while(( entry = zis.getNextEntry() ) != null ) {
+                                        if( entry.isDirectory())
+                                                continue;
+
+                                        String rel = entry.getName();
+                                        if( !rel.endsWith( "gfx/shell/colors.lst" )) {
+                                                zis.closeEntry();
+                                                continue;
+                                        }
+
+                                        File outFile = new File( dest, rel );
+                                        if( !outFile.getCanonicalPath().startsWith(
+                                                destCanon + File.separator )) {
+                                                Log.w( TAG, "skipping suspicious zip entry: " + rel );
+                                                zis.closeEntry();
+                                                continue;
+                                        }
+
+                                        File parent = outFile.getParentFile();
+                                        if( parent != null && !parent.isDirectory())
+                                                parent.mkdirs();
+
+                                        FileOutputStream fos = new FileOutputStream( outFile );
+                                        int n;
+                                        while(( n = zis.read( buffer )) > 0 )
+                                                fos.write( buffer, 0, n );
+                                        fos.close();
+
+                                        written++;
+                                        zis.closeEntry();
+                                }
+                                zis.close();
+                        }
+
+                        prefs.edit().putString( "menu_colors_version", STAMP ).apply();
+                        Log.i( TAG, "[A7] build140: shipped colors.lst refreshed ("
+                                + written + " gamedir palettes written)" );
+                } catch( Throwable t ) {
+                        // no stamp on failure -> retries on the next launch
+                        Log.w( TAG, "[A7] build140: colors.lst refresh failed", t );
                 }
         }
 
@@ -1931,8 +2051,17 @@ public class MainActivity extends Activity {
                         engineIcon.setImageResource( engineOk
                                 ? R.drawable.ic_check : R.drawable.ic_warn );
 
+                // A7 build 140 (round 140 item 4, user: "addons bundle said
+                // will install on launch but i already did"): the marker was
+                // the arm64 libmetamod .so - since build 137 NO native
+                // library is written to the gamedir any more, so this check
+                // could never pass and the card showed the orange "Will
+                // install on launch" forever no matter how installed the
+                // bundle was. plugins.ini is the bundle's own ABI-neutral
+                // marker: the file extractZipIfNeeded gates on and
+                // patchPluginsIni() keeps in sync on every launch.
                 File marker = new File( getXashDir(),
-                        "cstrike/addons/metamod/dlls/libmetamod_android_arm64.so" );
+                        "cstrike/addons/metamod/plugins.ini" );
                 boolean addonsOk = marker.isFile();
                 addonsStatus.setText( addonsOk
                         ? getString( R.string.status_installed )
