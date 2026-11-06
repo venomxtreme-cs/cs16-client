@@ -301,6 +301,26 @@ public class MainActivity extends Activity {
                         + ( android.os.SystemClock.uptimeMillis() - t0 )
                         + " ms (pak cstrike=" + cs + ", valve=" + hl
                         + ", czero=" + cz + ")" );
+
+                // A7 build 138 (round 137 item 2, user: "fix start launch
+                // game still too late"): the engine runs in THIS process,
+                // so the PLAY tap used to pay for dlopen'ing libSDL2.so
+                // (6.5 MB) + libxash.so (11 MB) on top of everything
+                // else. Do it here, on the install thread, while the menu
+                // is still up - System.loadLibrary is idempotent per
+                // process and in the same order as XashActivity's
+                // getLibraries(), so the engine activity's own load turns
+                // into a cheap no-op hit.
+                final long tLibs = android.os.SystemClock.uptimeMillis();
+                try {
+                        System.loadLibrary( "SDL2" );
+                        System.loadLibrary( "xash" );
+                        Log.i( TAG, "[A7] build138: engine libs preloaded in the launcher (+"
+                                + ( android.os.SystemClock.uptimeMillis() - tLibs )
+                                + " ms; the PLAY tap no longer pays the dlopen)" );
+                } catch( Throwable t ) {
+                        Log.w( TAG, "engine lib preload failed (the engine will load them itself)", t );
+                }
         }
 
         // cached form of findGamePakDir(): the walk is the expensive part of
