@@ -655,6 +655,11 @@ public class MainActivity extends Activity {
                         full, factoryReset, manifest );
                 saveShippedManifest( manifest );
 
+                // A7 build 139 (item 5): the collage refresh below is
+                // stamp-gated, not bundle-CRC gated - a warm install must
+                // run it too (see refreshMenuArt)
+                refreshMenuArt();
+
                 // the stale-file cleanup is GONE. It deleted the
                 // ProBaseBuilder file set (bb plugins, Pro_basebuilder.ini and
                 // scripting/include/basebuilder.inc) on EVERY launch, so anything
@@ -934,6 +939,120 @@ public class MainActivity extends Activity {
                 Toast.makeText( this, "AMX Mod X addons installed (" + assetName + ": "
                         + count + " files)", Toast.LENGTH_SHORT ).show();
                 return count;
+        }
+
+        // ------------------------------------------------------------------
+        // A7 build 139 (item 5, user: "fix background still with hd, find
+        // original counter strike background then fix it"): mayOverwrite's
+        // "always refresh the menu collage" rules only run INSIDE an
+        // extraction, and a warm install - unchanged assets/addons.zip CRC
+        // - skips extraction entirely (extractZipIfNeeded's gate above).
+        // So the stale HD collage an old game-data package or an early
+        // release left in the gamedir (resource/BackgroundLayout.txt naming
+        // the 25'th-anniversary 3840x1600 21_9_* tiles, plus those tiles on
+        // disk) survived every update and kept rendering instead of the
+        // shipped ORIGINAL 1280x720 collage. Stamp-gated one-time forced
+        // refresh: rewrite the shipped layout + tiles straight from the
+        // bundle regardless of the gate, then delete every background tile
+        // the bundle does not ship (the HD 21_9_* set) and the HD layout
+        // files. Menu art only - no configs, no user data, nothing else in
+        // the gamedir is touched. No stamp on failure: it retries next
+        // launch. Log line is the round's scan marker.
+        // ------------------------------------------------------------------
+        private void refreshMenuArt() {
+                SharedPreferences prefs = getPreferences( MODE_PRIVATE );
+                final String STAMP = "b139";
+                if( STAMP.equals( prefs.getString( "menu_art_version", "" ) ) )
+                        return;
+
+                final String prefix = "cstrike/resource/";
+                final String layoutRel = prefix + "BackgroundLayout.txt";
+                final String tilesPrefix = prefix + "background/";
+                java.util.HashSet<String> shipped = new java.util.HashSet<>();
+                byte[] buffer = new byte[65536];
+                int written = 0;
+                int stale = 0;
+
+                try {
+                        File dest = getXashDir();
+                        String destCanon = dest.getCanonicalPath();
+
+                        InputStream in = getAssets().open( "addons.zip" );
+                        ZipInputStream zis = new ZipInputStream( in );
+                        ZipEntry entry;
+                        while(( entry = zis.getNextEntry() ) != null ) {
+                                if( entry.isDirectory() )
+                                        continue;
+
+                                String rel = entry.getName();
+                                boolean tile = rel.startsWith( tilesPrefix )
+                                        && rel.endsWith( ".tga" );
+                                if( !tile && !rel.equals( layoutRel )) {
+                                        zis.closeEntry();
+                                        continue;
+                                }
+
+                                File outFile = new File( dest, rel );
+                                if( !outFile.getCanonicalPath().startsWith(
+                                        destCanon + File.separator )) {
+                                        Log.w( TAG, "skipping suspicious zip entry: " + rel );
+                                        zis.closeEntry();
+                                        continue;
+                                }
+
+                                File parent = outFile.getParentFile();
+                                if( parent != null && !parent.isDirectory() )
+                                        parent.mkdirs();
+
+                                FileOutputStream fos = new FileOutputStream( outFile );
+                                int n;
+                                while(( n = zis.read( buffer )) > 0 )
+                                        fos.write( buffer, 0, n );
+                                fos.close();
+
+                                shipped.add( rel );
+                                written++;
+                                zis.closeEntry();
+                        }
+                        zis.close();
+
+                        // stale tiles: anything sitting in the background
+                        // folder that the shipped layout set does not carry
+                        // (the HD 21_9_* set from an old package) - menu art
+                        // by location, never user content
+                        File tileDir = new File( dest, tilesPrefix );
+                        File[] leftovers = tileDir.listFiles();
+                        if( leftovers != null ) {
+                                for( File f : leftovers ) {
+                                        if( !f.isFile() || !f.getName().endsWith( ".tga" ))
+                                                continue;
+                                        String rel = tilesPrefix + f.getName();
+                                        if( !shipped.contains( rel ) && f.delete())
+                                                stale++;
+                                }
+                        }
+
+                        // and the HD layouts themselves: mainui only reads
+                        // them behind GFL_HD_BACKGROUND, but a stale copy
+                        // must not stay in the gamedir at all
+                        String[] hdLayouts = {
+                                prefix + "HD_BackgroundLayout.txt",
+                                prefix + "HD_BackgroundLoadingLayout.txt"
+                        };
+                        for( String rel : hdLayouts ) {
+                                File f = new File( dest, rel );
+                                if( f.isFile() && f.delete())
+                                        stale++;
+                        }
+
+                        prefs.edit().putString( "menu_art_version", STAMP ).apply();
+                        Log.i( TAG, "[A7] build139: menu background art refreshed ("
+                                + written + " shipped written, " + stale
+                                + " stale removed)" );
+                } catch( Throwable t ) {
+                        // no stamp on failure -> retries on the next launch
+                        Log.w( TAG, "[A7] build139: menu background art refresh failed", t );
+                }
         }
 
         // ------------------------------------------------------------------

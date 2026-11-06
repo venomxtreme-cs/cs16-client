@@ -494,6 +494,34 @@ public class XashActivity extends SDLActivity {
 		}
 	}
 
+	// A7 build 139 (items 3+4): the SteamFriends screen's own fetch
+	// (media/avatars/avatar_self.png) reuses the picker's live-refresh
+	// hook, so the new photo shows in the Options preview and on both
+	// scoreboards without a rejoin. Public static: that screen is a
+	// different Activity in this same process. The native throws only
+	// when the engine libs are not loaded (launcher-side sign-in) - the
+	// file is already on disk there and the next start picks it up.
+	public static void notifyAvatarSaved() {
+		try {
+			nativeAvatarSaved();
+		} catch ( Throwable t ) {
+			Log.i( TAG, "notifyAvatarSaved: engine not running, file waits for next start" );
+		}
+	}
+
+	// A7 build 139 (item 4, "if he use steam account don't let him change
+	// avatar"): friends/steamid.txt is written by the SteamFriends screen
+	// on sign-in - while it exists the Steam photo owns the avatar
+	private boolean steamOwnsAvatar() {
+		try {
+			File f = new File( new File( resolveBaseDir(), avatarGameDir() ),
+					"friends/steamid.txt" );
+			return f.isFile();
+		} catch ( Throwable t ) {
+			return false;
+		}
+	}
+
 	/** the game folder this activity runs (steamfriends uses the same default) */
 	private String avatarGameDir() {
 		try {
@@ -650,6 +678,16 @@ public class XashActivity extends SDLActivity {
 	/** keep the gallery Uri path working while the in-app file dialog
 	 *  (avatar_import) shares every other step with it */
 	private void saveAvatarPick( final Uri uri, final String path ) {
+		// A7 build 139 (item 4, "if he use steam account don't let him
+		// change avatar"): the Steam photo is the avatar while the account
+		// is connected - refuse the WRITE here, the single choke both the
+		// gallery picker and "avatar_import <path>" flow through (the menu
+		// hides the buttons and refuses too, three gates on purpose)
+		if( steamOwnsAvatar() ) {
+			consolePrintf( "Avatar: build139: Steam account connected - avatar import refused" );
+			return;
+		}
+
 		Thread t = new Thread( new Runnable() {
 			@Override public void run() {
 				try {

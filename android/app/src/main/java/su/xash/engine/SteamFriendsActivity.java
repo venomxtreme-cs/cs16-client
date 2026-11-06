@@ -74,7 +74,16 @@ public class SteamFriendsActivity extends Activity {
 		"if(!m)m=h.match(/profiles\\/(7656\\d{13})/);" +
 		"var me=document.querySelector('img.avatar');var self='';" +
 		"if(me){self=me.getAttribute('src')||me.getAttribute('data-src')||'';}" +
-		"var res={id:m?m[1]:'',self:self,names:out,ents:ents,servers:[]};" +
+		// A7 build 139 (items 3+4): my own persona name. First the
+		// embedded user JSON that sits right after our own steamid (the
+		// same object the id regex above found), else the text of the
+		// header avatar's profile link. Single-quoted JS only - like the
+		// note below, no regex backslashes to mis-escape Java-side.
+		"var meName='';" +
+		"if(m){var p=h.indexOf('\"steamid\":\"'+m[1]+'\"');if(p<0)p=h.indexOf('\"steamid\":'+m[1]);" +
+		"if(p>=0){var seg=h.substring(p,p+800);var pm=seg.match(/\"personaname\":\"([^\"]*)\"/);if(pm)meName=pm[1];}}" +
+		"if(!meName&&me&&me.closest){var a=me.closest('a');if(a){meName=(a.textContent||'').trim();}}" +
+		"var res={id:m?m[1]:'',self:self,me:meName,names:out,ents:ents,servers:[]};" +
 		// [.] instead of an escaped dot keeps this string free of
 		// backslashes: inside a character class the dot is literal, and
 		// Java-side escaping of an ES5 regex is where mistakes hide
@@ -365,6 +374,26 @@ public class SteamFriendsActivity extends Activity {
 						+ " (friends/steamid.txt written)" );
 			}
 
+			// A7 build 139 (items 3+4, user: "when i connect to steam
+			// update steam id, avatar and NAME also"): the persona from
+			// the same page payload goes to friends/name.txt - sanitized
+			// for the name cvar/userinfo, and only written when it
+			// actually CHANGED since the last sign-in. The menu applies
+			// it once per change (UI_ApplySteamPersona, remembered in
+			// friends/name_applied.txt) so a name typed by hand after the
+			// sign-in is never rewritten on a later visit to this screen.
+			String me = o.optString( "me", "" );
+			if( !mSteamId.isEmpty() && !me.isEmpty())
+			{
+				String clean = sanitizePersona( me );
+				if( !clean.isEmpty() && !clean.equals( readAccountFile( "name" )))
+				{
+					writeAccountFile( "name", clean );
+					Log.i( TAG, "[A7] build139: steam persona saved '" + clean
+							+ "' (friends/name.txt)" );
+				}
+			}
+
 			if( saveFriends )
 			{
 				ArrayList<String> names = new ArrayList<String>();
@@ -475,6 +504,23 @@ public class SteamFriendsActivity extends Activity {
 		{
 			// external storage missing - the list simply won't be shared
 		}
+	}
+
+	// A7 build 139 (items 3+4): persona -> something the name cvar and
+	// userinfo accept - no quotes/backslashes/semicolon (userinfo
+	// separators), no control characters, trimmed, 31 chars like the
+	// menu's name field.
+	private static String sanitizePersona( String s )
+	{
+		StringBuilder b = new StringBuilder( 32 );
+		for( int i = 0; i < s.length() && b.length() < 31; i++ )
+		{
+			char c = s.charAt( i );
+			if( c < 0x20 || c == 0x7F || c == '"' || c == '\\' || c == ';' )
+				continue;
+			b.append( c );
+		}
+		return b.toString().trim();
 	}
 
 	// <gamedir>/friends/names.txt: one friendly name per line, UTF-8. The
@@ -756,6 +802,15 @@ public class SteamFriendsActivity extends Activity {
 					sq.recycle();
 
 					Log.i( TAG, "welcome avatar saved" );
+
+					// A7 build 139 (items 3+4): raise the SAME live-refresh
+					// hook the gallery picker uses - the engine bumps
+					// @cl_avatargen on its next frame, so the options
+					// preview and both scoreboards show the new photo
+					// without a rejoin (throws only when the engine libs
+					// are not loaded, i.e. a launcher-side sign-in: the
+					// file is on disk for the next start then)
+					XashActivity.notifyAvatarSaved();
 				}
 				catch( Throwable t )
 				{

@@ -512,8 +512,11 @@ static const char *SB_SlotPath( int slot, float flTime )
 
 	if( mine )
 	{
-		cands[ncands++] = "media/avatars/avatar_custom.png";   // "Import image..."
+		// A7 build 139 (item 4): the Steam photo beats the imported
+		// picture - a signed-in account owns the avatar (the Options
+		// import path is refused while friends/steamid.txt exists)
 		cands[ncands++] = "media/avatars/avatar_self.png";     // my Steam photo
+		cands[ncands++] = "media/avatars/avatar_custom.png";   // "Import image..."
 
 		if( pngPath[0] )
 			cands[ncands++] = pngPath;
