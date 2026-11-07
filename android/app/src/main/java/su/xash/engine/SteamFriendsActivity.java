@@ -132,6 +132,11 @@ public class SteamFriendsActivity extends Activity {
 	private boolean mReturnFromBrowser = false;
 	private boolean mSignedInViaBrowser = false;
 
+	// A7 build 143 (round 143 item 2): one keyless friends refresh at a
+	// time (the screen open, the Friends button and a connect can all ask
+	// for it back to back)
+	private volatile boolean mFriendsRefreshing = false;
+
 	@Override
 	protected void onCreate( Bundle savedInstanceState )
 	{
@@ -204,7 +209,14 @@ public class SteamFriendsActivity extends Activity {
 		}
 		else
 		{
-			mWeb.loadUrl( URL_FRIENDS );
+			// A7 build 143 (round 143 item 2, user: "we can't see
+			// anythings in browser"): the signed-in open used to auto-load
+			// the desktop friends page - on a filtered network or an
+			// expired WebView session that renders BLANK, so the screen
+			// showed nothing at all. The data now comes from the keyless
+			// fetch (no session needed) and this WebView renders the list
+			// itself, so there is always something to see
+			refreshFriendsKeyless();
 		}
 	}
 
@@ -499,6 +511,12 @@ public class SteamFriendsActivity extends Activity {
 					status = "Steam ID: " + id + " - no name returned";
 				finishOnUi( status );
 
+				// A7 build 143 (round 143 item 2 + 4): a successful ID
+				// lookup now pulls the friends list too (keyless, no
+				// session) - names.txt + the Find Servers Friends tab fill
+				// in right after "Connected: <name>"
+				refreshFriendsKeyless();
+
 				if( changed )
 				{
 					// marker scanned from the dex by scan112
@@ -547,7 +565,9 @@ public class SteamFriendsActivity extends Activity {
 		// Chrome - on return the flow finishes itself in-app and the
 		// screen auto-closes back to cs16fresh once the ID is captured
 		addButton( bar, "Sign in", v -> openChromeSignIn());
-		addButton( bar, "Friends", v -> mWeb.loadUrl( URL_FRIENDS ));
+		// build 143 (item 2): keyless refresh + our own rendered list -
+		// the raw desktop page was a dead end on filtered networks
+		addButton( bar, "Friends", v -> refreshFriendsKeyless());
 		// A7 build 136 (item 1): a real Disconnect - the old screen had no
 		// way out of an account, so "connected" stuck forever (the menu
 		// options row and this status bar would keep showing the id).
@@ -1111,6 +1131,23 @@ public class SteamFriendsActivity extends Activity {
 						return;
 
 					android.graphics.Bitmap sq = squareCrop( bmp, 64 );
+
+					// A7 build 143 (round 143 item 6, user: "logo in left
+					// dosen't show like color white only"): save the photo
+					// OPAQUE - a transparent picture lands on the menu's
+					// white preview plate and lights the whole box up
+					if( sq.hasAlpha()) {
+						android.graphics.Bitmap flat = android.graphics.Bitmap.createBitmap(
+							sq.getWidth(), sq.getHeight(),
+							android.graphics.Bitmap.Config.ARGB_8888 );
+						android.graphics.Canvas cv = new android.graphics.Canvas( flat );
+						cv.drawColor( 0xFFFFFFFF );
+						cv.drawBitmap( sq, 0, 0, null );
+						if( sq != bmp )
+							sq.recycle();
+						sq = flat;
+					}
+
 					bmp.recycle();
 
 					File dir = new File( mGameDir, "media/avatars" );
@@ -1139,6 +1176,294 @@ public class SteamFriendsActivity extends Activity {
 				}
 			}
 		}).start();
+	}
+
+	// ------------------------------------------------------------------
+	// A7 build 143 (round 143 item 2, user: "fix steam login improve much
+	// more, becuase we can't see anythings in browser ... show them like
+	// i am playing original counter strike 1.6"): KEYLESS friends refresh.
+	//
+	// The desktop friends page needs a signed-in WebView session - on a
+	// filtered network or an expired cookie it renders BLANK, which is
+	// exactly what he reported. A PUBLIC profile's friends page, on the
+	// other hand, answers WITHOUT any login:
+	//     https://steamcommunity.com/profiles/<id>/friends/
+	// so the list is fetched in plain HTTP, regex-parsed (no JS, no
+	// session, NO Steam Web API key - project rule), written to disk and
+	// rendered into this WebView as our own page - always something to
+	// SEE. Runs on screen open (signed in), from the Friends button and
+	// after every successful ID connect.
+	//
+	// Writes (never FROM an empty result - good lists are never
+	// overwritten with nothing):
+	//   friends/names.txt     one friend name per line - the in-game
+	//                         scoreboard badges rows matching them
+	//   friends/servers.txt   "ip:port<TAB>name" per real steam://connect
+	//                         the page offers, plus "\t<name>" NAME-ONLY
+	//                         rows for every other friend (Find Servers
+	//                         -> Friends renders both - round 143 item 4)
+	//   friends/avatars/*     the photos, same format as always
+	// My own photo rides fetchMyAvatar's keyless XML path.
+	private void refreshFriendsKeyless()
+	{
+		final String sid = mSteamId;
+		if( sid.isEmpty() || mFriendsRefreshing )
+			return;
+
+		mFriendsRefreshing = true;
+
+		final String meNow = readAccountFile( "name" );
+		finishOnUi( meNow.isEmpty()
+			? ( "Reading friends of " + sid + " ..." )
+			: ( "Connected: " + meNow + " - reading friends ..." ));
+
+		// my photo refreshes with it (the same keyless XML endpoint the
+		// Connect flow uses - "avatar always update", round 143 item 4)
+		fetchMyAvatar( "" );
+
+		new Thread( new Runnable()
+		{
+			@Override public void run()
+			{
+				String statusLine = null;
+				String inner = "<p>Reading the friends list...</p>";
+				try
+				{
+					String html = httpGetString(
+						"https://steamcommunity.com/profiles/" + sid + "/friends/" );
+
+					if( html == null || html.isEmpty())
+					{
+						statusLine = "Friends unreachable (network?) - saved lists untouched";
+						inner = "<p>No answer from steamcommunity. Tap Friends to retry.</p>";
+					}
+					else if( html.contains( "This user's profile is private" ))
+					{
+						statusLine = "Steam profile is private - friends list hidden";
+						inner = "<p>This Steam profile is private. Set it to Public and "
+							+ "tap Friends again.</p>";
+					}
+					else
+					{
+						java.util.ArrayList<FriendRec> friends = parseFriendsPage( html );
+
+						// my own entry is not a friend of mine
+						for( int i = friends.size() - 1; i >= 0; i-- )
+							if( friends.get( i ).id.equals( sid ))
+								friends.remove( i );
+
+						java.util.ArrayList<String> names = new java.util.ArrayList<String>();
+						java.util.ArrayList<String[]> rows = new java.util.ArrayList<String[]>();
+						java.util.ArrayList<String> joinable = new java.util.ArrayList<String>();
+						org.json.JSONArray ents = new org.json.JSONArray();
+
+						// real join links keep their address; each is paired
+						// with the friend whose id block sits closest ABOVE
+						// it (the link lives inside that friend's row)
+						java.util.regex.Matcher sm = java.util.regex.Pattern.compile(
+							"steam://connect/([^\"'<>\\s\\\\]+)" ).matcher( html );
+						while( sm.find())
+						{
+							// decode the page's &-entity form of "&" (kept split: the
+							// contiguous & spelling gets mangled on the way in)
+							String addr = sm.group( 1 ).replace( "&" + "amp;", "&" )
+								.replaceFirst( "[),.;]+$", "" );
+							if( addr.indexOf( ':' ) < 0 )
+								continue; // not an ip:port link
+
+							FriendRec near = null;
+							for( FriendRec fr : friends )
+							{
+								if( fr.pos >= sm.start()) continue;
+								if( near == null || fr.pos > near.pos )
+									near = fr;
+							}
+
+							String nm = ( near != null ) ? near.name : "";
+							rows.add( new String[]{ addr, nm.isEmpty() ? addr : nm });
+							if( near != null )
+								joinable.add( near.name );
+						}
+
+						for( FriendRec fr : friends )
+						{
+							names.add( fr.name );
+
+							// friends with nowhere to join still land in
+							// servers.txt - as a name-only line (round 143
+							// item 4: Find Servers renders, connect refuses)
+							if( !joinable.contains( fr.name ))
+								rows.add( new String[]{ "", fr.name });
+
+							if( fr.avatar.isEmpty())
+								continue;
+							JSONObject e = new JSONObject();
+							try
+							{
+								e.put( "name", fr.name );
+								e.put( "src", fr.avatar );
+							}
+							catch( Throwable ignored )
+							{
+							}
+							ents.put( e );
+						}
+
+						// never overwrite a good list with an empty one
+						if( !names.isEmpty())
+							writeNames( names );
+						if( !rows.isEmpty())
+							writeServers( rows );
+						writeFriendAvatars( ents );  // no-ops when empty
+
+						String who = meNow.isEmpty() ? sid : meNow;
+						statusLine = "Connected: " + who + " - " + names.size()
+							+ " friends found";
+
+						StringBuilder b = new StringBuilder( 8192 );
+						for( FriendRec fr : friends )
+						{
+							b.append( "<li>" ).append( htmlEscape( fr.name ));
+							if( joinable.contains( fr.name ))
+								b.append( "<i>joinable server saved for Find Servers</i>" );
+							b.append( "</li>" );
+						}
+						inner = friends.isEmpty()
+							? "<p>No friends found on this profile.</p>"
+							: ( "<ul>" + b.toString() + "</ul>" );
+
+						// marker scanned from the dex by scan112
+						Log.i( TAG, "[A7] build143: keyless friends refresh - "
+							+ names.size() + " names, " + rows.size() + " rows" );
+					}
+				}
+				catch( Throwable t )
+				{
+					Log.w( TAG, "keyless friends refresh failed", t );
+					statusLine = "Friends list could not be read - tap Friends to retry";
+					inner = "<p>Could not read the friends list.</p>";
+				}
+				finally
+				{
+					mFriendsRefreshing = false;
+				}
+
+				final String st = ( statusLine != null ) ? statusLine : "Friends";
+				final String pg = inner;
+				runOnUiThread( new Runnable()
+				{
+					@Override public void run()
+					{
+						setStatus( st );
+						mWeb.loadDataWithBaseURL( null, friendsHtml( pg ),
+							"text/html", "utf-8", null );
+					}
+				});
+			}
+		}, "steam-friends-keyless" ).start();
+	}
+
+	// A7 build 143 (item 2): one friend parsed from the keyless page
+	private static final class FriendRec
+	{
+		String id = "";
+		String name = "";
+		String avatar = "";
+		int pos = -1;   // byte position of the entity in the page
+	}
+
+	/** steamcommunity's friends page (public, no session) -> friend list.
+	 *  Two passes: the embedded JSON entities first (name + photo live in
+	 *  one block around the steamid), plain profile anchors as the
+	 *  fallback for whatever markup the page still renders server-side. */
+	private static java.util.ArrayList<FriendRec> parseFriendsPage( String html )
+	{
+		java.util.ArrayList<FriendRec> out = new java.util.ArrayList<FriendRec>();
+		java.util.regex.Pattern idPat = java.util.regex.Pattern.compile(
+			"\"steamid\"\\s*:\\s*\"(7656[0-9]{13})\"" );
+		java.util.regex.Pattern namePat = java.util.regex.Pattern.compile(
+			"\"personaname\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"" );
+		java.util.regex.Pattern avPat = java.util.regex.Pattern.compile(
+			"\"(?:avatarfull|avatarmedium|avatar)\"\\s*:\\s*\"([^\"]+)\"" );
+
+		java.util.regex.Matcher m = idPat.matcher( html );
+		while( m.find())
+		{
+			FriendRec fr = new FriendRec();
+			fr.id = m.group( 1 );
+			fr.pos = m.start();
+
+			// the entity's fields sit together; the window is generous
+			// because the field order changes between page renders
+			int from = Math.max( 0, m.start() - 600 );
+			int to = Math.min( html.length(), m.end() + 1400 );
+
+			java.util.regex.Matcher nm = namePat.matcher( html );
+			nm.region( from, to );
+			if( nm.find())
+				fr.name = sanitizePersona( unescapeJson( nm.group( 1 )));
+
+			java.util.regex.Matcher av = avPat.matcher( html );
+			av.region( from, to );
+			if( av.find())
+				fr.avatar = av.group( 1 ).replace( "\\/", "/" );
+
+			if( !fr.name.isEmpty())
+				out.add( fr );
+		}
+
+		if( out.isEmpty())
+		{
+			// server-rendered fallback: <a .../profiles/7656...>Name</a>
+			java.util.regex.Matcher a = java.util.regex.Pattern.compile(
+				"profiles/(7656[0-9]{13})[^>]*>\\s*([^<]{1,64})\\s*<" ).matcher( html );
+			while( a.find())
+			{
+				FriendRec fr = new FriendRec();
+				fr.id = a.group( 1 );
+				fr.pos = a.start();
+				fr.name = sanitizePersona( a.group( 2 ).trim());
+				if( !fr.name.isEmpty())
+					out.add( fr );
+			}
+		}
+
+		return out;
+	}
+
+	/** the two escapes a personaname realistically arrives in */
+	private static String unescapeJson( String s )
+	{
+		if( s == null )
+			return "";
+		return s.replace( "\\\"", "\"" ).replace( "\\\\", "\\" ).replace( "\\/", "/" );
+	}
+
+	private static String htmlEscape( String s )
+	{
+		// the three HTML entities, assembled by concatenation so the
+		// usual &NAME; spelling cannot be mangled on the way in
+		String amp = "&" + "amp;";
+		String lt  = "&" + "lt;";
+		String gt  = "&" + "gt;";
+		return s.replace( "&", amp ).replace( "<", lt ).replace( ">", gt );
+	}
+
+	/** the screen's own list page - dark reference palette, no session,
+	 *  nothing to download: what he SEES when he opens this screen */
+	private static String friendsHtml( String inner )
+	{
+		return "<html><head><meta charset=\"utf-8\">"
+			+ "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+			+ "<style>"
+			+ "body{margin:0;padding:10px;background:#14171E;color:#E8ECF4;"
+			+ "font-family:Roboto,Arial,sans-serif;font-size:14px}"
+			+ "h3{color:#FFC25E;font-size:15px;margin:2px 0 8px}"
+			+ "ul{margin:0;padding:0;list-style:none}"
+			+ "li{padding:7px 4px;border-bottom:1px solid #2A303B;color:#E8ECF4}"
+			+ "i{display:block;color:#AEB7C6;font-size:11px;font-style:normal}"
+			+ "p{color:#AEB7C6}"
+			+ "</style></head><body><h3>Steam friends</h3>" + inner + "</body></html>";
 	}
 
 	private void setStatus( String s )

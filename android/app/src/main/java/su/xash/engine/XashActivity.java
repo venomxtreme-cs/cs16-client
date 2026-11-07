@@ -567,9 +567,11 @@ public class XashActivity extends SDLActivity {
 				try {
 					// a fresh copy from an earlier session is reused while it
 					// still decodes; steam photos change, so anything older
-					// than a day is pulled again, and broken leftovers are
-					// not trusted either
-					long stale = System.currentTimeMillis() - 24L * 60 * 60 * 1000;
+					// than an HOUR is pulled again (A7 build 143, round 143
+					// item 4 "avatar always update" - the day-long window
+					// made the photo look permanently stale), and broken
+					// leftovers are not trusted either
+					long stale = System.currentTimeMillis() - 60L * 60 * 1000;
 					if( out.isFile() && out.length() > 0 && out.lastModified() > stale
 							&& BitmapFactory.decodeFile( out.getAbsolutePath()) != null )
 						return;
@@ -697,8 +699,11 @@ public class XashActivity extends SDLActivity {
 						return;
 					}
 
-					// sample-bound decode so a 12mp photo can't blow the heap,
-					// the scoreboard picture is tiny anyway
+					// sample-bound decode so a 12mp photo can't blow the heap;
+					// A7 build 143 (round 143 item 6) the bound is 512 now,
+					// feeding the 256 square crop with real detail to spare
+					// ("import any picture but fix correct size and good
+					// quality") - the downscale itself is makeAvatarSquare
 					BitmapFactory.Options bounds = new BitmapFactory.Options();
 					bounds.inJustDecodeBounds = true;
 					java.io.InputStream in = openAvatarStream( uri, path );
@@ -706,7 +711,7 @@ public class XashActivity extends SDLActivity {
 					if( in != null ) try { in.close(); } catch ( Throwable ignored ) {}
 
 					int sample = 1;
-					while( bounds.outWidth / sample > 256 || bounds.outHeight / sample > 256 )
+					while( bounds.outWidth / sample > 512 || bounds.outHeight / sample > 512 )
 						sample *= 2;
 
 					BitmapFactory.Options opts = new BitmapFactory.Options();
@@ -863,19 +868,38 @@ public class XashActivity extends SDLActivity {
 		}
 	}
 
-	/** one avatar, two files: a square 128x128 png for the scoreboard's
-	 *  engine loader, a 32x32 tga next to it for the vgui one. Raises the
-	 *  engine's avatar-saved flag so the menu refreshes live (build 111). */
+	/** one avatar, two files: a square 256x256 png for the scoreboard's
+	 *  engine loader, a 128x128 tga next to it for the vgui one (A7 build
+	 *  143, round 143 item 6 "avatar but bad quality" - up from 128/32),
+	 *  alpha flattened so the menu never blends a transparent photo over
+	 *  its white plate. Raises the engine's avatar-saved flag so the menu
+	 *  refreshes live (build 111). */
 	private void writeAvatarPair( File dir, String stem, Bitmap bmp ) {
 		try {
-			Bitmap made = makeAvatarSquare( bmp, 128 );
+			Bitmap made = makeAvatarSquare( bmp, 256 );
 			Bitmap out = ( made != null ) ? made : bmp;
+
+			// A7 build 143 (item 6, "white only"): a png with an alpha
+			// channel (Steam's default photo, logo-style imports) reaches
+			// the menu with holes in it - its preview box draws a white
+			// plate underneath and every transparent pixel lights up.
+			// Flatten onto solid white: the saved file is opaque, so the
+			// box can only ever show the picture
+			if( out.hasAlpha()) {
+				Bitmap flat = Bitmap.createBitmap(
+					out.getWidth(), out.getHeight(), Bitmap.Config.ARGB_8888 );
+				android.graphics.Canvas cv = new android.graphics.Canvas( flat );
+				cv.drawColor( 0xFFFFFFFF );
+				cv.drawBitmap( out, 0, 0, null );
+				if( made != null ) made.recycle(); // copied into flat already
+				made = out = flat;
+			}
 
 			java.io.FileOutputStream fos = new java.io.FileOutputStream( new File( dir, stem + ".png" ));
 			out.compress( Bitmap.CompressFormat.PNG, 100, fos );
 			fos.close();
 
-			byte[] tga = encodeTga( out, 32 );
+			byte[] tga = encodeTga( out, 128 );
 			if( tga != null ) {
 				fos = new java.io.FileOutputStream( new File( dir, stem + ".tga" ));
 				fos.write( tga );
