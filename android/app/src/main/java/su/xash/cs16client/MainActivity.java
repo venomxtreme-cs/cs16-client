@@ -416,24 +416,23 @@ public class MainActivity extends Activity {
         }
 
         /**
-         * Single entry point for the three game cards. Four states a tap can
-         * arrive in (A7 build 141, round 141 item 2 "fix when click start
-         * game still being too late"):
-         *   1. bundle still extracting  -> queued (a half-written bundle
-         *      must finish first; the toast says so),
-         *   2. bundle on disk, warm running (pak walks / lib preloads),
-         *      warm prep DONE           -> instant start - before this build
-         *      state 2 QUEUED too, and the warm pass is what runs through
-         *      the first second after opening the launcher: exactly the
-         *      window he taps in,
-         *   3. bundle on disk, warm NOT done -> the pak-dir answer (the only
-         *      thing missing) resolves on a worker, the engine starts right
-         *      after - the old code here re-ran extractAddons + seeds +
-         *      warmLaunchCache, duplicating the install thread's full work
-         *      and delaying the start even more,
-         *   4. nothing running (prep never started, e.g. failed pass) ->
-         *      the safety net: prep OFF-thread, then start.
-         * The UI thread never walks the filesystem in any state.
+         * Single entry point for the three game cards (A7 build 142,
+         * round 142 item 2, user: "fix in cs16fresh when launch game
+         * don't make verify first , just when open app will verify then
+         * will ready to play"): the launch pass - bundle extract, seeds,
+         * pak walks, lib warm - belongs ENTIRELY to the open-time pass in
+         * proceed(). This method verifies NOTHING: no extract, no seeds,
+         * no warm, no filesystem syscall on the UI thread.
+         *
+         *   1. bundle literally mid-extract (first launch after an update
+         *      only) -> queued, fired by the OPEN pass when the bundle
+         *      lands on disk,
+         *   2. pak-dir answer already cached (the normal case - the open
+         *      walk owns it) -> startGameNow() immediately,
+         *   3. cache miss (tap inside the first warm seconds) -> ONE
+         *      off-thread pak-dir resolve, then start - never the whole
+         *      prep chain any more (that duplicated work WAS the
+         *      "verify first" he saw between tap and game).
          */
         private void beginLaunch( final String game, final long tapMs ) {
                 if( mInstallRunning.get() && !mBundleCurrent ) {
@@ -449,56 +448,34 @@ public class MainActivity extends Activity {
                         return;
                 }
 
-                if( mLaunchPrepDone ) {
+                // build 142: cache READ only - zero I/O on the tap. The open
+                // pass pre-fills all three games, so this is the branch a
+                // ready launcher takes every time.
+                if( peekPakDir( pakDirKeyFor( game )) != null ) {
                         if( mInstallRunning.get())
-                                Log.i( TAG, "[A7] build141: tap started during warm - bundle current (game="
+                                Log.i( TAG, "[A7] build142: tap started while open pass still warming (game="
                                         + game + ", " + ( android.os.SystemClock.uptimeMillis() - tapMs )
                                         + " ms after tap)" );
                         startGameNow( game, tapMs );
                         return;
                 }
 
-                // A7 build 141: bundle is on disk (or the safety net below
-                // will put it there) but the pak dir is not cached yet -
-                // resolve only THAT on a worker, never the whole chain.
+                // build 142: cache miss - resolve ONLY this game's pak dir on
+                // a worker, then start. The old safety net (re-extract addons
+                // + seeds + warm HERE on the tap) is GONE - that was the
+                // "verify first" at launch. Whatever it guarded runs at app
+                // open now; a failed bundle is named by the open-pass log and
+                // never re-checked behind his PLAY tap.
                 new Thread( new Runnable() {
                         @Override
                         public void run() {
-                                // safety net for a pass that never marked the
-                                // bundle current (rare - failed install): do
-                                // the missing prep before starting
-                                if( !mBundleCurrent ) {
-                                        try {
-                                                extractAddonsIfNeeded();
-                                        } catch( Throwable t ) {
-                                                Log.w( TAG, "on-demand launch prep failed", t );
-                                        }
-                                        try {
-                                                ensureZpxVaultSeeds();
-                                        } catch( Throwable ignored ) {
-                                        }
-                                }
-
-                                // the only thing the start itself needs - one
-                                // walk (cached afterwards for every retry)
                                 try {
                                         cachedPakDir( pakDirKeyFor( game ));
                                 } catch( Throwable t ) {
                                         Log.w( TAG, "pak dir resolve failed", t );
                                 }
 
-                                // warm only when NO install thread owns it - in state 3 that
-                                // thread is warming right now and a second warm
-                                // would just walk the tree twice
-                                if( !mInstallRunning.get() && !mLaunchPrepDone ) {
-                                        try {
-                                                warmLaunchCache();
-                                        } catch( Throwable t ) {
-                                                Log.w( TAG, "on-demand warm failed", t );
-                                        }
-                                }
-
-                                Log.i( TAG, "[A7] build141: tap ran its off-thread prep - starting (game="
+                                Log.i( TAG, "[A7] build142: tap resolved pak dir only - starting (game="
                                         + game + ", " + ( android.os.SystemClock.uptimeMillis() - tapMs )
                                         + " ms after tap)" );
                                 runOnUiThread( new Runnable() {
@@ -508,7 +485,20 @@ public class MainActivity extends Activity {
                                         }
                                 });
                         }
-                }, "launch-prep" ).start();
+                }, "pak-resolve" ).start();
+        }
+
+        /**
+         * A7 build 142 (round 142 item 2): TAP-side pak answer - a plain
+         * map READ, deliberately WITHOUT cachedPakDir()'s isDirectory /
+         * dirHasPaks re-validation (any syscall behind the tap is a
+         * "verify"). Misses are resolved off-thread through the validating
+         * cachedPakDir() before startGameNow() runs.
+         */
+        private String peekPakDir( String gamedir ) {
+                synchronized( mPakDirCache ) {
+                        return mPakDirCache.get( gamedir );
+                }
         }
 
         /** gamedir key of a startGameNow() game id, for the pak cache. */
@@ -540,7 +530,11 @@ public class MainActivity extends Activity {
                 // xash/cstrike/cstrike/pak0.pak (or a "CS/" folder). Folder
                 // really absent: start anyway, the engine's own console
                 // explains what's missing (same start-anyway rule as HL/CZ).
-                String pakDir = cachedPakDir( "cstrike" );
+                // A7 build 142 (item 2): peek, not cachedPakDir - beginLaunch already
+                // resolved the cache (hit, or the worker seeded it), so the tap
+                // never validates anything on the UI thread; null falls back
+                // to the default gamedir exactly like before
+                String pakDir = peekPakDir( "cstrike" );
                 if( pakDir == null )
                         pakDir = "cstrike";
 
@@ -1778,7 +1772,7 @@ public class MainActivity extends Activity {
         // the old top-level-only check refused to start even when the data
         // sat right there (device report: "pak didn't found ... folder
         // already in xash").
-                String pakDir = cachedPakDir( "valve" );
+                String pakDir = peekPakDir( "valve" );   // build 142: no I/O at the tap
                 if( pakDir == null ) {
                         if( resolveGameDir( "valve" ) == null ) {
                                 Toast.makeText( this, R.string.menu_hl_missing,
@@ -1830,7 +1824,7 @@ public class MainActivity extends Activity {
 
         // A7 build 128: the old onCZeroPressed() body, pak lookup cached.
         private void startCZero( long tapMs ) {
-                String pakDir = cachedPakDir( "czero" );
+                String pakDir = peekPakDir( "czero" );   // build 142: no I/O at the tap
                 if( pakDir == null ) {
                         if( resolveGameDir( "czero" ) == null ) {
                                 Toast.makeText( this, R.string.menu_cz_missing,

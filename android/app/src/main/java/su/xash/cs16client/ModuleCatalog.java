@@ -126,6 +126,18 @@ public final class ModuleCatalog {
 			if( BUNDLED.contains( module.toLowerCase( Locale.US )))
 				continue;	// bundled in the app already - never offer a duplicate
 
+			// A7 build 142 (round 142 item 4, user: "remove modules
+			// weaponmod that in half life from github we made new post of
+			// custom modules , so remove it"): the Half-Life weaponmod is
+			// retired from the published catalog - never offered for the
+			// valve target. Any other game keeps every published module.
+			if( ModuleInstaller.GAME_VALVE.equals( game )
+					&& "weaponmod".equalsIgnoreCase( module )) {
+				// marker scanned from the dex by scan112
+				Log.i( TAG, "build142: weaponmod (Half-Life) retired from catalog" );
+				continue;
+			}
+
 			String key = game + "/" + module;
 			Module m = byKey.get( key );
 			if( m == null ) {

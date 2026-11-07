@@ -182,7 +182,15 @@ public class SteamFriendsActivity extends Activity {
 		});
 
 		mSteamId = readAccountFile( "steamid" );
-		setStatus( mSteamId.isEmpty() ? "Not signed in" : ( "Steam ID: " + mSteamId ));
+		// A7 build 142 (round 142 item 1, user: "if it work will show
+		// connect with name and more"): an account already on disk leads
+		// with the persona NAME the connect produced (friends/name.txt) -
+		// the raw id is the detail after it, not the headline
+		String openPersona = readAccountFile( "name" );
+		setStatus( mSteamId.isEmpty() ? "Not signed in"
+			: ( openPersona.isEmpty()
+				? ( "Connected - Steam ID " + mSteamId )
+				: ( "Connected: " + openPersona + "  -  Steam ID " + mSteamId )));
 
 		if( mSteamId.isEmpty())
 		{
@@ -259,7 +267,18 @@ public class SteamFriendsActivity extends Activity {
 	// A7 build 136 (item 1, user: connect/disconnect must both work):
 	// sign out for real - WebView cookies go, friends/steamid.txt is
 	// deleted, so this status bar, the launcher Settings card and the
-	// in-game Options Steam row all read "not signed in" again
+	// in-game Options Steam row all read "not signed in" again.
+	//
+	// A7 build 142 (round 142 item 1, user: "add with disconnect if he
+	// want play normal with other id game"): a disconnect is now TOTAL -
+	// the persona (friends/name.txt) and its apply-once guard
+	// (friends/name_applied.txt) go too, and the Steam photo is removed
+	// so the avatar chains (scoreboard / Player Setup / Options row) fall
+	// back to the imported avatar the moment the file is gone. Nothing
+	// else is touched: the name cvar keeps whatever he set, friend
+	// avatars stay (they belong to the friends list), and the next
+	// connect - any other Steam ID - writes the standard file set from
+	// scratch with no stale persona masking it.
 	private void signOut()
 	{
 		try {
@@ -278,8 +297,40 @@ public class SteamFriendsActivity extends Activity {
 		} catch( Throwable ignored ) {
 		}
 
+		// build 142: the rest of the account state - persona files first
+		boolean removed = false;
+		String[] personaFiles = { "name.txt", "name_applied.txt" };
+		for( String n : personaFiles ) {
+			try {
+				File f = new File( mFriendsDir, n );
+				if( f.isFile() && f.delete())
+					removed = true;
+			} catch( Throwable ignored ) {
+			}
+		}
+
+		// ...then the Steam photo itself (mGameDir/media/avatars is where
+		// fetchMyAvatar writes it; every consumer checks FileExists first)
+		try {
+			File av = new File( mGameDir, "media/avatars/avatar_self.png" );
+			if( av.isFile() && av.delete())
+				removed = true;
+		} catch( Throwable ignored ) {
+		}
+
 		mSteamId = "";
-		setStatus( "Not signed in" );
+		if( mSteamIdInput != null )
+			mSteamIdInput.setText( "" );
+
+		if( removed ) {
+			// marker scanned from the dex by scan112
+			Log.i( TAG, "[A7] build142: steam disconnected - persona + photo cleared, ready for another id" );
+			// live signal: the running menu re-reads the avatar/persona
+			// state right away (same path the connect write uses)
+			XashActivity.notifyAvatarSaved();
+		}
+
+		setStatus( "Disconnected - type a Steam ID below and tap Connect" );
 		mWeb.loadUrl( URL_LOGIN );
 	}
 
@@ -441,7 +492,9 @@ public class SteamFriendsActivity extends Activity {
 				if( hiddenProfile )
 					status = "Steam ID: " + id + " - profile is private, set it to Public for name/photo";
 				else if( name != null && !name.isEmpty())
-					status = "Steam ID: " + id + "  -  " + name;
+					// build 142 (item 1): connect result leads with the
+					// name ("Connected: <name>"), id kept as the detail
+					status = "Connected: " + name + "  -  Steam ID " + id;
 				else
 					status = "Steam ID: " + id + " - no name returned";
 				finishOnUi( status );
@@ -497,8 +550,11 @@ public class SteamFriendsActivity extends Activity {
 		addButton( bar, "Friends", v -> mWeb.loadUrl( URL_FRIENDS ));
 		// A7 build 136 (item 1): a real Disconnect - the old screen had no
 		// way out of an account, so "connected" stuck forever (the menu
-		// options row and this status bar would keep showing the id)
-		addButton( bar, "Sign out", v -> signOut());
+		// options row and this status bar would keep showing the id).
+		// build 142 (item 1): labelled Disconnect and signOut() now clears
+		// the persona + photo as well, so HE can switch ids ("play normal
+		// with other id game")
+		addButton( bar, "Disconnect", v -> signOut());
 		addButton( bar, "Close", v -> finish());
 
 		LinearLayout statusRow = new LinearLayout( this );
@@ -599,10 +655,11 @@ public class SteamFriendsActivity extends Activity {
 				mSteamId = id;
 				writeAccountFile( "steamid", id );
 				accountChanged = true;
-				// A7 build 136 (item 1): "connected" = id on disk, and the
-				// line says Steam ID exactly like the launcher Settings card
-				// and the in-game Options row do
-				setStatus( "Steam ID: " + id );
+				// A7 build 136 (item 1): "connected" = id on disk.
+				// build 142 (item 1): the status leads with the connect
+				// state, NOT the raw number (the in-game Options row hides
+				// the id too - photo only)
+				setStatus( "Connected - Steam ID " + id );
 				Log.i( TAG, "[A7] build136: steam connected " + id
 						+ " (friends/steamid.txt written)" );
 			}

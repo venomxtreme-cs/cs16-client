@@ -24,9 +24,12 @@ import java.util.List;
 /**
  * Install custom native modules (.so) into the shared game tree.
  *
- * Two ways in, as requested: an in-app file picker (per kind) and a drop-in
- * folder scan. Both route through ModuleInstaller, which places the .so with
- * the right ABI suffix and appends the registration line to modules.ini /
+ * A7 build 142 (round 142 item 4, user: "remove scan drop in with new
+ * folder just only import and remove modules"): exactly TWO actions left -
+ * the in-app file picker (per kind, per Import button) and REMOVE on each
+ * installed row. The drop-in folder scan is gone; the GitHub catalog keeps
+ * offering published modules. ModuleInstaller places the .so with the
+ * right ABI suffix and appends the registration line to modules.ini /
  * metamod plugins.ini. A target-game toggle picks cstrike or valve.
  */
 public class ModulesActivity extends Activity {
@@ -81,18 +84,9 @@ public class ModulesActivity extends Activity {
 				pick( REQ_METAMOD );
 			}
 		});
-		((Button) findViewById( R.id.scan_dropin )).setOnClickListener(
-			new View.OnClickListener() {
-			@Override
-			public void onClick( View v ) {
-				scanDropIn();
-			}
-		});
-
-		((TextView) findViewById( R.id.dropin_path )).setText(
-			"Drop .so files into:\n"
-			+ ModuleInstaller.xashDir().getAbsolutePath() + "/custom_modules/amxx\n"
-			+ ModuleInstaller.xashDir().getAbsolutePath() + "/custom_modules/mod" );
+		// A7 build 142 (round 142 item 4): the scan-drop-in button and its
+		// folder hint are GONE from this screen - Import + Remove are the
+		// only actions left (activity_modules.xml no longer maps either)
 
 		setGame( game );
 		refreshCatalog();
@@ -298,41 +292,12 @@ public class ModulesActivity extends Activity {
 	}
 
 	// ------------------------------------------------------------------
-	// drop-in folder
+	// A7 build 142 (round 142 item 4): the drop-in folder scan section is
+	// GONE - scanDropIn() and ModuleInstaller.installDropIn()/installDir()
+	// were removed with it ("just only import and remove modules"). The
+	// Import pickers above and each installed row's REMOVE are the whole
+	// install surface now.
 	// ------------------------------------------------------------------
-
-	private void scanDropIn() {
-		new Thread( new Runnable() {
-			@Override
-			public void run() {
-				final List<ModuleInstaller.Result> results =
-					ModuleInstaller.installDropIn( game );
-				runOnUiThread( new Runnable() {
-					@Override
-					public void run() {
-						if( results.isEmpty()) {
-							Toast.makeText( ModulesActivity.this,
-								"No .so files in the drop-in folder",
-								Toast.LENGTH_LONG ).show();
-						} else {
-							int ok = 0, fail = 0;
-							for( ModuleInstaller.Result r : results ) {
-								if( r.ok )
-									ok++;
-								else
-									fail++;
-							}
-							Toast.makeText( ModulesActivity.this,
-								ok + " installed" + ( fail > 0
-									? ", " + fail + " failed" : "" ),
-								Toast.LENGTH_LONG ).show();
-						}
-						refresh();
-					}
-				});
-			}
-		}).start();
-	}
 
 	// ------------------------------------------------------------------
 	// catalog (live from github.com/venomxtreme-cs/cs16fresh-modules)

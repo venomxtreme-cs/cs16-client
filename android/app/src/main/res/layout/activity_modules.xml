@@ -128,36 +128,12 @@
                     android:textSize="15sp"
                     android:textStyle="bold" />
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="11dp"
-                    android:layout_marginBottom="11dp"
-                    android:background="#2A303B" />
-
-                <Button
-                    android:id="@+id/scan_dropin"
-                    android:layout_width="match_parent"
-                    android:layout_height="48dp"
-                    android:background="@drawable/btn_neutral"
-                    android:fontFamily="sans-serif-medium"
-                    android:gravity="center"
-                    android:text="@string/modules_scan_dropin"
-                    android:textColor="#E8ECF4"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
+                <!-- A7 build 142 (round 142 item 4): the scan-drop-in button, its
+                     divider and the drop-in folder hint are removed - this
+                     card ends after the two Import rows ("just only import
+                     and remove modules") -->
 
             </LinearLayout>
-
-            <TextView
-                android:id="@+id/dropin_path"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:lineSpacingExtra="2dp"
-                android:text="@string/modules_dropin_hint"
-                android:textColor="#4E5666"
-                android:textSize="10sp" />
 
             <!-- installed -->
             <TextView

@@ -103,8 +103,8 @@
     <string name="modules_section_install">INSTALL</string>
     <string name="modules_install_amxx">INSTALL AMXX MODULE</string>
     <string name="modules_install_metamod">INSTALL METAMOD PLUGIN</string>
-    <string name="modules_scan_dropin">SCAN DROP-IN FOLDER</string>
-    <string name="modules_dropin_hint">Drop .so files into the custom_modules folder, then scan.</string>
+    <!-- A7 build 142 (round 142 item 4): modules_scan_dropin and
+         modules_dropin_hint removed with the scan-drop-in feature -->
     <string name="modules_section_installed">INSTALLED</string>
     <string name="modules_empty">No custom modules installed for this game.</string>
     <string name="modules_restart_note">Restart the game for changes to take effect.</string>

@@ -241,30 +241,11 @@ public final class ModuleInstaller {
 		}
 	}
 
-	/** Installs every .so found in the drop-in folders for the given game. */
-	public static List<Result> installDropIn( String game ) {
-		List<Result> out = new ArrayList<Result>();
-		out.addAll( installDir(
-			new File( xashDir(), "custom_modules/amxx" ), KIND_AMXX, game ));
-		out.addAll( installDir(
-			new File( xashDir(), "custom_modules/mod" ), KIND_METAMOD, game ));
-		return out;
-	}
-
-	private static List<Result> installDir( File dir, int kind, String game ) {
-		List<Result> out = new ArrayList<Result>();
-		File[] files = dir.listFiles();
-		if( files == null )
-			return out;
-		for( File f : files ) {
-			if( !f.isFile() )
-				continue;
-			if( !f.getName().toLowerCase( Locale.US ).endsWith( ".so" ))
-				continue;
-			out.add( install( kind, game, f ));
-		}
-		return out;
-	}
+	// A7 build 142 (round 142 item 4, user: "remove scan drop in with new
+	// folder just only import and remove modules"): installDropIn() and its
+	// installDir() helper are REMOVED with the screen's scan button - the
+	// drop-in path (custom_modules/amxx + custom_modules/mod) is no longer
+	// offered anywhere. Import (SAF picker) and remove stay.
 
 	// ------------------------------------------------------------------
 	// list / remove
