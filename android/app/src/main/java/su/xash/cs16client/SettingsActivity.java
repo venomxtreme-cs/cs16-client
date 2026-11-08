@@ -7,10 +7,13 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.view.View;
+import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
+
+import su.xash.engine.SteamIdConnect;
 
 /**
  * Settings tab (build 113: "add settings that in xash crash log and
@@ -134,6 +137,82 @@ public class SettingsActivity extends Activity {
 	void bindSteamViews() {
 		findViewById( R.id.settings_steam_card ).setOnClickListener( steamOpenListener );
 		findViewById( R.id.settings_steam_open ).setOnClickListener( steamOpenListener );
+
+		// A7 build 146 (round 146 item 2, user: connect from the LAUNCHER
+		// "without browser"): inline ID row + Connect button run the
+		// WebViewless su.xash.engine.SteamIdConnect helper - writes the
+		// same friends/steamid.txt + name/photo files the sign-in screen
+		// and the friends screen do, no Chrome hand-off, no API key
+		steamIdInput = (EditText) findViewById( R.id.settings_steam_id_input );
+		steamStatus = (TextView) findViewById( R.id.settings_steam_status );
+		findViewById( R.id.settings_steam_connect ).setOnClickListener(
+			new View.OnClickListener() {
+				@Override
+				public void onClick( View v ) {
+					connectBySteamId();
+				}
+			});
+	}
+
+	private EditText steamIdInput;
+	private TextView steamStatus;
+
+	// <basedir>/<gamedir> for the game currently picked in the launcher
+	private File gameRoot() {
+		String gamedir = currentGameDir();
+		File root;
+		try {
+			root = android.os.Environment.getExternalStorageDirectory();
+			if( root == null )
+				throw new IllegalStateException();
+		} catch( Throwable t ) {
+			root = new File( "/storage/emulated/0" );
+		}
+		return new File( new File( root, "xash" ), gamedir );
+	}
+
+	// 0 = cstrike, 1 = valve, 2 = czero (stored by MainActivity.launchEngine)
+	private String currentGameDir() {
+		int game = getSharedPreferences( "MainActivity", MODE_PRIVATE )
+			.getInt( "selected_game", 0 );
+		return game == 1 ? "valve" : ( game == 2 ? "czero" : "cstrike" );
+	}
+
+	private void connectBySteamId() {
+		String raw = steamIdInput.getText() != null ? steamIdInput.getText().toString() : "";
+		if( raw.trim().isEmpty()) {
+			showSteamStatus( "Type the Steam ID of the account first" );
+			return;
+		}
+
+		steamIdInput.setEnabled( false );
+		showSteamStatus( "Connecting ..." );
+
+		SteamIdConnect.connect( gameRoot(), raw, new SteamIdConnect.Listener() {
+			@Override
+			public void onStatus( String status ) {
+				showSteamStatus( status );
+			}
+
+			@Override
+			public void onConnected( String steamId64, String persona, boolean changed ) {
+				refreshSteam(); // card title + ID line pick the new id up
+				if( changed )
+					steamIdInput.setText( "" );
+			}
+
+			@Override
+			public void onDone( boolean ok ) {
+				steamIdInput.setEnabled( true ); // failed lookup unblocks too
+			}
+		});
+	}
+
+	private void showSteamStatus( String text ) {
+		if( steamStatus == null )
+			return;
+		steamStatus.setText( text != null ? text : "" );
+		steamStatus.setVisibility( text != null && !text.isEmpty() ? View.VISIBLE : View.GONE );
 	}
 
 	private void openSteamScreen() {
