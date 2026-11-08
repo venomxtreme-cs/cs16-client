@@ -46,7 +46,17 @@
 #if defined(__GNUC__) || defined(__clang__)
 	#include <signal.h>
 
-	#define DebuggerBreak() raise(SIGTRAP)
+	// A7 build 144 (round 144 item 4): mingw's CRT signal.h never defines
+	// SIGTRAP (it is MSVC/Signal.SIGBREAK based), so raise(SIGTRAP) did
+	// not compile on the Windows x64 target - clang's debug-trap
+	// intrinsic is the same intent (break under a debugger) and exists on
+	// every platform clang supports; only reached through
+	// DebuggerBreakIfDebugging()'s Plat_IsInDebugSession() gate
+	#if defined(_WIN32)
+		#define DebuggerBreak() __builtin_debugtrap()
+	#else
+		#define DebuggerBreak() raise(SIGTRAP)
+	#endif
 #else
 	#define DebuggerBreak() DebugBreak()
 #endif

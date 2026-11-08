@@ -206,9 +206,17 @@ else()
 		)
 	endif()
 
-	add_custom_target(generate_extras ALL
-		DEPENDS ${GRAPHS_OUTPUT} ${EXTRAS_OUTPUT}
-	)
+	# build 144 (item 4): on WIN32 the waypoint graph dir never exists
+	# (bot packaging is skipped), so the target depends on the pack alone
+	if(WIN32)
+		add_custom_target(generate_extras ALL
+			DEPENDS ${EXTRAS_OUTPUT}
+		)
+	else()
+		add_custom_target(generate_extras ALL
+			DEPENDS ${GRAPHS_OUTPUT} ${EXTRAS_OUTPUT}
+		)
+	endif()
 
 	install(
 		FILES "${EXTRAS_OUTPUT}"

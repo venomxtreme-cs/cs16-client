@@ -37,7 +37,10 @@ if (NOT XASH_COMPAT)
 endif()
 
 set(COMPILE_FLAGS "-U_FORTIFY_SOURCE")
-if(NOT MSVC)
+# A7 build 144 (round 144 item 4): libdl is a Unix loader - the Windows
+# target resolves every import through the PE loader (Kernel32), and
+# mingw ships no libdl to link against
+if(NOT MSVC AND NOT WIN32)
 	set(LINK_LIBS dl)
 endif()
 
@@ -140,7 +143,11 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "
 	endif()
 endif()
 
-if (NOT DEBUG AND NOT ANDROID AND NOT APPLE)
+# A7 build 144 (round 144 item 4): --version-script is an ELF linker
+# directive (symbol visibility map) that lld does not accept for the PE
+# target - exports there are already produced by the DLL_EXPORT/def side,
+# so the whole flag pair is skipped on WIN32
+if (NOT DEBUG AND NOT ANDROID AND NOT APPLE AND NOT WIN32)
 	set(LINK_FLAGS "${LINK_FLAGS} \
 		-Wl,-gc-sections -Wl,--version-script=\"${PROJECT_SOURCE_DIR}/../version_script.lds\"")
 endif()
@@ -341,6 +348,14 @@ if (MSVC)
 		"public/tier0/assert_dialog.cpp"
 		"public/tier0/platform_win32.cpp"
 		"public/tier0/assert_dialog.rc")
+elseif (WIN32)
+	# A7 build 144 (round 144 item 4): the mingw take gets the POSIX
+	# platform file (clang, not MSVC) plus the Windows-only assert dialog
+	# implementation - dbg.cpp references DoNewAssertDialog under _WIN32
+	# and only the MSVC branch used to compile its definition in
+	set(GAMEDLL_SRCS ${GAMEDLL_SRCS}
+		"public/tier0/assert_dialog.cpp"
+		"public/tier0/platform_posix.cpp")
 else()
 	set(GAMEDLL_SRCS ${GAMEDLL_SRCS}
 		"public/tier0/platform_posix.cpp")
@@ -391,6 +406,16 @@ if (MSVC)
 	target_compile_definitions(regamedll PRIVATE
 		_CRT_SECURE_NO_WARNINGS
 		_CRT_NONSTDC_NO_DEPRECATE)
+elseif (WIN32)
+	# A7 build 144 (round 144 item 4): the mingw (Windows x64) target is
+	# Windows, NOT Unix - the block below forces _LINUX/LINUX (which
+	# re-triggers platform_posix.cpp's /proc getppid() probe and every
+	# Linux code path) plus glibc name mappings mingw already provides
+	# natively under its own MS names. The CRT-warning suppressions stay
+	# for parity with the MSVC branch.
+	target_compile_definitions(regamedll PRIVATE
+		_CRT_SECURE_NO_WARNINGS
+		_CRT_NONSTDC_NO_DEPRECATE)
 else()
 	target_compile_definitions(regamedll PRIVATE
 		_LINUX
@@ -431,21 +456,29 @@ if (USE_STATIC_LIBSTDC)
 	set(LINK_FLAGS "${LINK_FLAGS} -static-libgcc -static-libstdc++")
 endif()
 
-set(LINK_FLAGS "${LINK_FLAGS} -Wl,-rpath,'$ORIGIN/.'")
+# A7 build 144 (item 4): -rpath is an ELF runtime search-path flag -
+# undefined for the PE loader (mingw ld rejects it)
+if(NOT WIN32)
+	set(LINK_FLAGS "${LINK_FLAGS} -Wl,-rpath,'$ORIGIN/.'")
+endif()
 
 if (CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT ANDROID)
 	set(LINK_FLAGS "${LINK_FLAGS} -L${PROJECT_SOURCE_DIR}/lib/linux32")
 endif()
 
 if (NOT MSVC)
-	if (NOT ANDROID)
+	if (NOT ANDROID AND NOT WIN32)
 		# upstream #1177: allow text relocations for non-PIC i386 linux builds only;
 		# Android >= 6 refuses to dlopen libraries with DT_TEXTREL
+		# A7 build 144 (item 4): -z notext is ELF-only - PE uses neither
 		set(LINK_FLAGS "${LINK_FLAGS} -Wl,-z,notext")
 	endif()
+	# A7 build 144 (item 4): quoted - on WIN32 every ELF-only link flag
+	# above was skipped and LINK_FLAGS stays empty, where an unquoted
+	# ${LINK_FLAGS} disappears from the argument list entirely
 	set_target_properties(regamedll PROPERTIES
-		COMPILE_FLAGS ${COMPILE_FLAGS}
-		LINK_FLAGS ${LINK_FLAGS}
+		COMPILE_FLAGS "${COMPILE_FLAGS}"
+		LINK_FLAGS "${LINK_FLAGS}"
 	)
 endif()
 

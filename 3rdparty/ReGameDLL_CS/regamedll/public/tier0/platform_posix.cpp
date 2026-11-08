@@ -54,6 +54,12 @@ bool Plat_IsInDebugSession()
 		return (0 == strncmp(s, "gdb", 3));
 	}
 	return false;
+#else
+	// A7 build 144 (round 144 item 4): the Windows (mingw) target is
+	// neither Apple nor _LINUX - without _LINUX this function used to
+	// fall off its end with no return (DebuggerBreakIfDebugging reads it),
+	// so it answers false: no debugger session assumed on Windows
+	return false;
 #endif
 }
 

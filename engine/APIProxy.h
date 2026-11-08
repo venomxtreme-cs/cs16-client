@@ -5,9 +5,13 @@
 #include "netadr.h"
 #include "Sequence.h"
 
-#ifndef _WIN32
+// A7 build 144 (round 144 item 4): enums.h was _WIN32-excluded, so the
+// Windows build never saw `enum netsrc_s` and clang rejected the forward
+// reference in pfnNET_SendPacket below ("ISO C++ forbids forward
+// references to 'enum' types"). The header is a guarded 8-line typedef
+// (netsrc_s/netsrc_t) every platform needs - include it unconditionally;
+// Android keeps compiling exactly what it compiled before.
 #include "enums.h"
-#endif
 
 #define	MAX_ALIAS_NAME	32
 

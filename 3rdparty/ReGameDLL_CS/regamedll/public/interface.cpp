@@ -109,7 +109,10 @@ void *GetModuleHandle(const char *name)
 //static hlds_run wants to use this function
 void *Sys_GetProcAddress(const char *pModuleName, const char *pName)
 {
-	return GetProcAddress(GetModuleHandle(pModuleName), pName);
+	// A7 build 144 (round 144 item 4): on the Windows target clang keeps
+	// FARPROC (function pointer) distinct from void* - the old-style cast
+	// performs the reinterpretation MSVC accepted implicitly
+	return (void *)GetProcAddress(GetModuleHandle(pModuleName), pName);
 }
 
 // Purpose: returns a pointer to a function, given a module
@@ -118,7 +121,8 @@ void *Sys_GetProcAddress(const char *pModuleName, const char *pName)
 // hlds_run wants to use this function
 void *Sys_GetProcAddress(void *pModuleHandle, const char *pName)
 {
-	return GetProcAddress((HMODULE)pModuleHandle, pName);
+	// A7 build 144 (item 4): same FARPROC -> void* reinterpretation as above
+	return (void *)GetProcAddress((HMODULE)pModuleHandle, pName);
 }
 
 // Purpose: Loads a DLL/component from disk and returns a handle to it
