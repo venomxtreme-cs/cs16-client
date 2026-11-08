@@ -228,6 +228,11 @@ public class XashActivity extends SDLActivity {
 	private TextView mLoadingDlCount;
 	private int mLoadingDlFiles;
 	private String mLoadingServer = "";
+	// A7 build 144 (round 144 items 2+3): true once he tapped Cancel -
+	// the dismissed window must stay dismissed (the load is being
+	// abandoned through nativeLoadingCancelled), while a window LOST to a
+	// failed show or a stray hide is rebuilt by the status-feed self-heal
+	private boolean mLoadingDismissed = false;
 
 	// Cancel rides beside the main bar, or beside the transfer bar while
 	// one runs - like the pc dialog
@@ -327,7 +332,28 @@ public class XashActivity extends SDLActivity {
 		runOnUiThread(new Runnable() {
 			@Override
 			public void run() {
-				if (mLoadingOverlay == null) return;
+				// A7 build 144 (round 144 items 2+3): the engine only
+				// pushes status while IT believes the window is up
+				// (g_loading_shown, set by loadingShow) - and while that
+				// belief is true its own auto-re-show never runs, so if
+				// our view is gone anyway (the show threw, a stray hide
+				// removed it, the activity re-attached its views) the
+				// whole load sat BLACK with no touch buttons: latched
+				// frames draw nothing and touch only draws in the game
+				// 2d chain. Rebuild the cover from this status feed. He
+				// Cancel'ed a window: mLoadingDismissed keeps it down -
+				// nativeLoadingCancelled is already collapsing that load.
+				if (mLoadingOverlay == null) {
+					if (mLoadingDismissed) return;
+					try {
+						showLoadingOnUiThread(mLoadingServer);
+					} catch (Throwable t) {
+						Log.w(TAG, "loading overlay self-heal failed", t);
+					}
+					if (mLoadingOverlay == null) return;
+					// one-shot log scanned from the dex by scan112
+					Log.i(TAG, "[A7] build144: loading overlay rebuilt (was lost mid-load)");
+				}
 				try {
 					if (text != null && text.length() > 0) {
 						if (mLoadingStatus != null &&
@@ -1223,6 +1249,9 @@ public class XashActivity extends SDLActivity {
 
 	private void showLoadingOnUiThread(String serverAddr) {
 		mLoadingDlFiles = 0; // build 103: fresh file count per load
+		// build 144: a (re)show means the window is wanted again - the
+		// Cancel latch only applies to the load he dismissed
+		mLoadingDismissed = false;
 		if (mLoadingOverlay != null)
 			hideLoadingOverlay();
 
@@ -1337,6 +1366,9 @@ public class XashActivity extends SDLActivity {
 		cancel.setOnClickListener(new View.OnClickListener() {
 			@Override
 			public void onClick(View v) {
+				// build 144: dismissed on purpose - the status-feed
+				// self-heal must not rebuild the window he just closed
+				mLoadingDismissed = true;
 				hideLoadingOverlay();
 				nativeLoadingCancelled();
 			}

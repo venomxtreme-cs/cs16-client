@@ -58,6 +58,13 @@ endif()
 # endif()
 
 if(BUILD_SERVER)
+	# A7 build 144 (round 144 item 4, user: "add windows version for cs16
+	# fresh but don't add amxmodx or 2 bots ebot yapb"): the two bot half-
+	# builds (YaPB + CS-EBOT) are an ANDROID-only package - they ship
+	# inside the app's addons bundle. The standalone Windows zip must
+	# carry them NEVER, so the whole bot block is skipped on WIN32.
+	# Every other platform keeps its exact current behavior.
+if(NOT WIN32)
 	# ExternalProject_Add(
 	# 	yapb
 	# 	SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/yapb
@@ -96,6 +103,11 @@ if(BUILD_SERVER)
 	add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../CS-EBOT/project ${CMAKE_CURRENT_BINARY_DIR}/ebot)
 	set_target_postfix_with_name(EBOT ebot)
 
+	endif() # NOT WIN32 (bots excluded from the Windows build - build 144 item 4)
+
+	# The ReGameDLL game dll itself is NOT a bot and NOT amxmodx - it is
+	# the Counter-Strike game code (same source app the Android build
+	# ships) and must be present for listen-server / offline play.
 	set(XASH_COMPAT ON CACHE BOOL "" FORCE)
 	add_subdirectory(3rdparty/ReGameDLL_CS)
 	yy_thunks_apply(regamedll)
@@ -110,11 +122,16 @@ endif()
 
 set(GRAPHS_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/graphs")
 
+# A7 build 144 (item 4): the YaPB waypoint graph fetch is bot packaging -
+# it runs at configure time and would drag bot flowgraphs into the
+# Windows zip. Skipped on WIN32; every other platform keeps it.
+if(NOT WIN32)
 execute_process(
 	COMMAND ${Python_EXECUTABLE}
 	${CMAKE_CURRENT_SOURCE_DIR}/scripts/yapb_graph_dl.py
 	${GRAPHS_OUTPUT}/addons/yapb/data/graph
 )
+endif()
 
 set(EXTRAS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/cs16client-extras")
 set(YAPB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../yapb/cfg")
@@ -166,14 +183,28 @@ if(ANDROID)
 else()
 	set(EXTRAS_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/extras.pk3")
 
-	execute_process(
-		COMMAND ${Python_EXECUTABLE}
-		${CMAKE_CURRENT_SOURCE_DIR}/scripts/pack_extras.py
-		${EXTRAS_OUTPUT}
-		${EXTRAS_DIR}
-		${YAPB_DIR}
-		${GRAPHS_OUTPUT}
-	)
+	# A7 build 144 (round 144 item 4): on WIN32 the extras pack carries
+	# cs16client-extras ONLY - the YaPB configs and waypoint graph dirs
+	# are bot packaging and must never land in the Windows zip ("don't
+	# add amxmodx or 2 bots ebot yapb"). Every other platform keeps the
+	# full pack.
+	if(WIN32)
+		execute_process(
+			COMMAND ${Python_EXECUTABLE}
+			${CMAKE_CURRENT_SOURCE_DIR}/scripts/pack_extras.py
+			${EXTRAS_OUTPUT}
+			${EXTRAS_DIR}
+		)
+	else()
+		execute_process(
+			COMMAND ${Python_EXECUTABLE}
+			${CMAKE_CURRENT_SOURCE_DIR}/scripts/pack_extras.py
+			${EXTRAS_OUTPUT}
+			${EXTRAS_DIR}
+			${YAPB_DIR}
+			${GRAPHS_OUTPUT}
+		)
+	endif()
 
 	add_custom_target(generate_extras ALL
 		DEPENDS ${GRAPHS_OUTPUT} ${EXTRAS_OUTPUT}
