@@ -14,6 +14,7 @@ import android.widget.Toast;
 import java.io.File;
 
 import su.xash.engine.SteamIdConnect;
+import su.xash.engine.SteamOpenId;
 
 /**
  * Settings tab (build 113: "add settings that in xash crash log and
@@ -152,6 +153,18 @@ public class SettingsActivity extends Activity {
 					connectBySteamId();
 				}
 			});
+
+		// A7 build 147 (round 147 item 5, user: "Steam OpenID sign-in as
+		// anti-steal proof", BOTH PC and Android): browser -> 127.0.0.1
+		// redirect catch -> keyless check_authentication verification
+		// (NO Steam Web API key), then the same connect-by-id write path
+		findViewById( R.id.settings_steam_openid ).setOnClickListener(
+			new View.OnClickListener() {
+				@Override
+				public void onClick( View v ) {
+					signInWithSteam();
+				}
+			});
 	}
 
 	private EditText steamIdInput;
@@ -213,6 +226,34 @@ public class SettingsActivity extends Activity {
 			return;
 		steamStatus.setText( text != null ? text : "" );
 		steamStatus.setVisibility( text != null && !text.isEmpty() ? View.VISIBLE : View.GONE );
+	}
+
+	// round 147 item 5: OpenID proof sign-in - the browser proves the
+	// account ownership, the local listener verifies it keylessly and the
+	// verified id lands in the SAME connect-by-id write path (account
+	// files + identity vault merge from round 147 item 6)
+	private void signInWithSteam() {
+		steamIdInput.setEnabled( false );
+		showSteamStatus( "Opening Steam sign-in in your browser ..." );
+
+		SteamOpenId.start( this, gameRoot(), new SteamIdConnect.Listener() {
+			@Override
+			public void onStatus( String status ) {
+				showSteamStatus( status );
+			}
+
+			@Override
+			public void onConnected( String steamId64, String persona, boolean changed ) {
+				refreshSteam(); // card title + ID line pick the new id up
+				if( changed )
+					steamIdInput.setText( "" );
+			}
+
+			@Override
+			public void onDone( boolean ok ) {
+				steamIdInput.setEnabled( true ); // failed proof unblocks too
+			}
+		});
 	}
 
 	private void openSteamScreen() {

@@ -123,6 +123,7 @@
     <string name="settings_steam_open">Open Steam sign-in</string>
     <string name="settings_steam_id_hint">Steam ID (7656... or STEAM_0:0:1)</string>
     <string name="settings_steam_connect">Connect</string>
+    <string name="settings_steam_openid">Sign in with Steam (OpenID proof)</string>
     <string name="settings_section_about">ABOUT</string>
     <string name="settings_log_open">VIEW LOG</string>
     <string name="settings_log_share">SHARE</string>

@@ -831,6 +831,12 @@ public class SteamFriendsActivity extends Activity {
 		{
 			// external storage missing - the list simply won't be shared
 		}
+
+		// A7 build 147 (round 147 item 6): every sign-in door (WebView,
+		// engine "steamfriends" command) merges the identity into the
+		// game nvault too - merge semantics, never wiped
+		if( "steamid".equals( what ) || "name".equals( what ))
+			IdentityVault.write( mGameDir );
 	}
 
 	// A7 build 139 (items 3+4): persona -> something the name cvar and

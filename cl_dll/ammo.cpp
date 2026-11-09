@@ -1586,13 +1586,33 @@ void CHudAmmo::DrawCrosshair( int weaponId )
 	wrect_t inner;
 	wrect_t outer;
 
-	/* calculate the coordinates */
-	center_x = ( ScreenWidth / 2 ) * gHUD.m_flScale;
-	center_y = ( ScreenHeight / 2 ) * gHUD.m_flScale;
+	/* calculate the coordinates.
+	 * A7 round 147 item 7 (user: "advanced custom crosshair from xash, fix
+	 * placement for not stuck"): the TriAPI 2D space is the RENDER target
+	 * (vid_width x vid_height), so read those cvars LIVE every frame and
+	 * center on them directly. The old math went through the HUD's cached
+	 * m_scrinfo/m_flScale, which only refreshes on VidInit - after a
+	 * runtime resolution switch (round 143 item 9 / round 147 item 8) or
+	 * an hud_scale change the crosshair stayed stuck at the previous
+	 * position until a map change. vid_width can report 0 before the
+	 * first video mode settles: fall back to the cached values there. */
+	{
+		int rw = (int)gEngfuncs.pfnGetCvarFloat( "vid_width" );
+		int rh = (int)gEngfuncs.pfnGetCvarFloat( "vid_height" );
 
-	gap = ScaleForRes( GetCrosshairGap( weaponId ), ScreenHeight * gHUD.m_flScale );
-	length = ScaleForRes( xhair_size->value, ScreenHeight * gHUD.m_flScale );
-	thickness = ScaleForRes( xhair_thick->value, ScreenHeight * gHUD.m_flScale );
+		if( rw < 1 || rh < 1 )
+		{
+			rw = ScreenWidth;
+			rh = ScreenHeight;
+		}
+
+		center_x = rw / 2;
+		center_y = rh / 2;
+
+		gap = ScaleForRes( GetCrosshairGap( weaponId ), rh );
+		length = ScaleForRes( xhair_size->value, rh );
+		thickness = ScaleForRes( xhair_thick->value, rh );
+	}
 	thickness = max( 1, thickness );
 
 	/* build 101: cl_crosshair_size (auto|small|medium|large in Options) used

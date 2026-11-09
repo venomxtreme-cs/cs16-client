@@ -220,6 +220,12 @@ public final class SteamIdConnect {
 		// (names.txt / servers.txt / friends/avatars) with "no session needed"
 		refreshFriendsKeyless( gamedir, id );
 
+		// A7 build 147 (round 147 item 6, user: "Identity into game
+		// nvault ... never wiped"): merge the identity into the game's
+		// nvault store - runs for EVERY door (ID row + OpenID proof),
+		// merge semantics, existing entries are never wiped
+		IdentityVault.write( gamedir );
+
 		if( changed )
 		{
 			// build 141 marker kept EXACTLY - scan112 already watches it and

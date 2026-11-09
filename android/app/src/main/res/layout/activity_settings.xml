@@ -353,6 +353,20 @@
 
                 </LinearLayout>
 
+                <!-- A7 build 147 (round 147 item 5): Steam OpenID sign-in
+                     proof - browser login -> 127.0.0.1 redirect caught
+                     locally -> keyless verification, no API key -->
+                <Button
+                    android:id="@+id/settings_steam_openid"
+                    android:layout_width="match_parent"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/btn_neutral"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="@string/settings_steam_openid"
+                    android:textColor="#E8ECF4"
+                    android:textSize="12sp" />
+
                 <TextView
                     android:id="@+id/settings_steam_status"
                     android:layout_width="match_parent"
