@@ -319,6 +319,14 @@ int CHudAmmo::Init(void)
 
 	cl_crosshair_type = CVAR_CREATE( "cl_crosshair_type", "0", FCVAR_ARCHIVE );
 
+	// A7 build 155 (user: "in options remove crosshair appearance, change
+	// it to advance crosshair which it already have but try to fix places
+	// no stuck and mores"): the Options Multiplayer tab now carries the
+	// advanced crosshair (xhair_* cvars + cl_crosshair_type) instead of
+	// the legacy sprite knobs, and every crosshair path centers/scales on
+	// the LIVE render size (vid_width/vid_height) - one-shot marker
+	gEngfuncs.Con_Printf( "build155: advanced crosshair options live\n" );
+
 	return 1;
 }
 
@@ -1184,20 +1192,40 @@ void CHudAmmo::DrawSpriteCrosshair()
 
 	gEngfuncs.pfnSPR_Set( m_hStaticSpr, m_staticRgba.r, m_staticRgba.g, m_staticRgba.b );
 
-	x = ( ScreenWidth - m_rcStaticRc.Width() ) / 2;
-	y = ( ScreenHeight - m_rcStaticRc.Height() ) / 2;
+	/* A7 build 155 ("fix places no stuck"): the static sprite centered on
+	 * the CACHED ScreenWidth/ScreenHeight - after a runtime resolution
+	 * switch it stayed stuck off-center until a map change (same class of
+	 * bug the dynamic path had in round 147). Read the render size live,
+	 * fall back to the cached values before the first mode settles. */
+	{
+		int rw = (int)gEngfuncs.pfnGetCvarFloat( "vid_width" );
+		int rh = (int)gEngfuncs.pfnGetCvarFloat( "vid_height" );
+
+		if( rw < 1 || rh < 1 )
+		{
+			rw = ScreenWidth;
+			rh = ScreenHeight;
+		}
+
+		x = ( rw - m_rcStaticRc.Width() ) / 2;
+		y = ( rh - m_rcStaticRc.Height() ) / 2;
+	}
 
 	// gEngfuncs.pfnSPR_Draw( 0, x, y, &m_rcStaticRc );
 	gEngfuncs.pfnSPR_DrawHoles( 0, x, y, &m_rcStaticRc );
 }
 
-#define WEST_XPOS (ScreenWidth / 2 - flCrosshairDistance - iLength + 1)
-#define EAST_XPOS (flCrosshairDistance + ScreenWidth / 2)
-#define EAST_WEST_YPOS (ScreenHeight / 2)
+/* A7 build 155: the legacy quads below use these ONLY through the
+ * live-read locals now (the cached ScreenWidth/ScreenHeight kept them
+ * stuck after a runtime resolution switch - see the fix in
+ * CHudAmmo::DrawCrosshair) */
+#define WEST_XPOS (rw / 2 - flCrosshairDistance - iLength + 1)
+#define EAST_XPOS (flCrosshairDistance + rw / 2)
+#define EAST_WEST_YPOS (rh / 2)
 
-#define NORTH_YPOS (ScreenHeight / 2 - flCrosshairDistance - iLength + 1)
-#define SOUTH_YPOS (ScreenHeight / 2 + flCrosshairDistance)
-#define NORTH_SOUTH_XPOS (ScreenWidth / 2)
+#define NORTH_YPOS (rh / 2 - flCrosshairDistance - iLength + 1)
+#define SOUTH_YPOS (rh / 2 + flCrosshairDistance)
+#define NORTH_SOUTH_XPOS (rw / 2)
 
 int Distances[30][2] =
 {
@@ -1439,8 +1467,14 @@ float CHudAmmo::GetCrosshairGap( int weaponId )
 
 	if ( xhairPrevTime > clientTime )
 	{
-		// client restart
+		/* A7 build 155 ("fix places no stuck"): a client restart (map
+		 * change / disconnect) resets the whole decay state too - the
+		 * old statics survived it, so the crosshair opened stuck wide
+		 * on the new round if you had sprayed before leaving the last
+		 * one */
 		xhairPrevTime = clientTime;
+		xhairGap = 0;
+		lastShotsFired = 0;
 	}
 
 	float deltaTime = clientTime - xhairPrevTime;
@@ -1817,36 +1851,52 @@ void CHudAmmo::DrawCrosshair()
 	if ( m_iAlpha > 255 )
 		m_iAlpha = 255;
 
-	if ( ScreenWidth != m_iCrosshairScaleBase )
+	/* A7 build 155 ("fix places no stuck"): the legacy quads scaled and
+	 * centered on the CACHED ScreenWidth/ScreenHeight - after a runtime
+	 * resolution switch they stayed stuck at the old center/scale until a
+	 * map change (the same class of bug the advanced path had in round
+	 * 147; WEST_XPOS and friends below read the live values now). */
 	{
-		flCrosshairDistance = ScreenWidth * m_flCrosshairDistance / m_iCrosshairScaleBase;
-		iLength = ScreenWidth * iLength / m_iCrosshairScaleBase;
-	}
-	else
-	{
-		flCrosshairDistance = m_flCrosshairDistance;
-	}
+		int rw = (int)gEngfuncs.pfnGetCvarFloat( "vid_width" );
+		int rh = (int)gEngfuncs.pfnGetCvarFloat( "vid_height" );
 
-	// drawing
-	if ( g_iXash && ( xhair_enable->value || cl_crosshair_type->value ) )
-	{
-		DrawCrosshair( weaponid );
-		return;
-	}
+		if( rw < 1 || rh < 1 )
+		{
+			rw = ScreenWidth;
+			rh = ScreenHeight;
+		}
 
-	if ( m_bAdditive )
-	{
-		FillRGBA( WEST_XPOS, EAST_WEST_YPOS, iLength, 1, m_R, m_G, m_B, m_iAlpha );
-		FillRGBA( EAST_XPOS, EAST_WEST_YPOS, iLength, 1, m_R, m_G, m_B, m_iAlpha );
-		FillRGBA( NORTH_SOUTH_XPOS, NORTH_YPOS, 1, iLength, m_R, m_G, m_B, m_iAlpha );
-		FillRGBA( NORTH_SOUTH_XPOS, SOUTH_YPOS, 1, iLength, m_R, m_G, m_B, m_iAlpha );
-	}
-	else
-	{
-		FillRGBABlend( WEST_XPOS, EAST_WEST_YPOS, iLength, 1, m_R, m_G, m_B, m_iAlpha );
-		FillRGBABlend( EAST_XPOS, EAST_WEST_YPOS, iLength, 1, m_R, m_G, m_B, m_iAlpha );
-		FillRGBABlend( NORTH_SOUTH_XPOS, NORTH_YPOS, 1, iLength, m_R, m_G, m_B, m_iAlpha );
-		FillRGBABlend( NORTH_SOUTH_XPOS, SOUTH_YPOS, 1, iLength, m_R, m_G, m_B, m_iAlpha );
+		if ( rw != m_iCrosshairScaleBase )
+		{
+			flCrosshairDistance = rw * m_flCrosshairDistance / m_iCrosshairScaleBase;
+			iLength = rw * iLength / m_iCrosshairScaleBase;
+		}
+		else
+		{
+			flCrosshairDistance = m_flCrosshairDistance;
+		}
+
+		// drawing
+		if ( g_iXash && ( xhair_enable->value || cl_crosshair_type->value ) )
+		{
+			DrawCrosshair( weaponid );
+			return;
+		}
+
+		if ( m_bAdditive )
+		{
+			FillRGBA( WEST_XPOS, EAST_WEST_YPOS, iLength, 1, m_R, m_G, m_B, m_iAlpha );
+			FillRGBA( EAST_XPOS, EAST_WEST_YPOS, iLength, 1, m_R, m_G, m_B, m_iAlpha );
+			FillRGBA( NORTH_SOUTH_XPOS, NORTH_YPOS, 1, iLength, m_R, m_G, m_B, m_iAlpha );
+			FillRGBA( NORTH_SOUTH_XPOS, SOUTH_YPOS, 1, iLength, m_R, m_G, m_B, m_iAlpha );
+		}
+		else
+		{
+			FillRGBABlend( WEST_XPOS, EAST_WEST_YPOS, iLength, 1, m_R, m_G, m_B, m_iAlpha );
+			FillRGBABlend( EAST_XPOS, EAST_WEST_YPOS, iLength, 1, m_R, m_G, m_B, m_iAlpha );
+			FillRGBABlend( NORTH_SOUTH_XPOS, NORTH_YPOS, 1, iLength, m_R, m_G, m_B, m_iAlpha );
+			FillRGBABlend( NORTH_SOUTH_XPOS, SOUTH_YPOS, 1, iLength, m_R, m_G, m_B, m_iAlpha );
+		}
 	}
 }
 
@@ -1888,9 +1938,19 @@ void CHudAmmo::CalculateCrosshairSize()
 		gEngfuncs.Con_Printf( "usage: cl_crosshair_size <auto|small|medium|large>\n" );
         break;
 	case 0:
-		if( gHUD.m_scrinfo.iWidth > 640 )
+	{
+		/* A7 build 155 ("fix places no stuck"): gHUD.m_scrinfo is a
+		 * VidInit-time cache - after a runtime resolution switch the
+		 * bucket stayed stale and the crosshair scale got stuck. Read
+		 * the render width live, fall back to the cache pre-init. */
+		int rw = (int)gEngfuncs.pfnGetCvarFloat( "vid_width" );
+
+		if( rw < 1 )
+			rw = gHUD.m_scrinfo.iWidth;
+
+		if( rw > 640 )
 		{
-			if( gHUD.m_scrinfo.iWidth < 1024 )
+			if( rw < 1024 )
 				m_iCrosshairScaleBase = 800;
 			else
 				m_iCrosshairScaleBase = 640;
@@ -1902,6 +1962,7 @@ void CHudAmmo::CalculateCrosshairSize()
 			m_iCrosshairScaleBase = 800;
 		}
 		break;
+	}
 	case 1:
 		m_iCrosshairScaleBase = 1024;
 		break;
